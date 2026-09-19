@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+*.pyc
+.opgg-*
+.test-artifacts/
+.lolbuddy-rune-page.json
+.lolbuddy-rune-page.json.tmp

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="color-scheme" content="dark">
+  <title>lolbuddy · Dein Draft</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="lolbuddy Startseite"><span class="brand-mark" aria-hidden="true">lb</span>lolbuddy<span class="brand-divider"></span><span class="brand-sub">Lobby &amp; Builds</span></a>
+    <div class="topbar-actions">
+      {% if lan_url %}<button class="phone-button" id="phone-button" type="button">Am Handy öffnen</button>{% endif %}
+      <span class="connection" id="connection" role="status"><span class="status-dot"></span><span id="connection-text">Verbindung wird hergestellt</span></span>
+    </div>
+  </header>
+
+  {% if lan_url %}
+  <dialog class="phone-dialog" id="phone-dialog" aria-labelledby="phone-dialog-title">
+    <button class="dialog-close" id="phone-dialog-close" type="button" aria-label="Schließen">×</button>
+    <p class="eyebrow">HANDY VERBINDEN</p>
+    <h2 id="phone-dialog-title">Im selben WLAN öffnen</h2>
+    <p>Scanne den QR-Code mit deinem Handy. Der Rechner und League müssen eingeschaltet bleiben.</p>
+    <div class="qr-frame"><img src="{{ url_for('lan_qr') }}" alt="QR-Code für {{ lan_url }}"></div>
+    <a class="lan-url" href="{{ lan_url }}">{{ lan_url }}</a>
+  </dialog>
+  {% endif %}
+
+  <dialog class="champion-dialog" id="champion-dialog" aria-labelledby="champion-dialog-title">
+    <div class="champion-dialog-head">
+      <div><p class="eyebrow">CHAMPION-AUSWAHL</p><h2 id="champion-dialog-title">Champion wählen</h2></div>
+      <button class="dialog-close" id="champion-dialog-close" type="button" aria-label="Schließen" autofocus>×</button>
+    </div>
+    <label class="champion-search"><span class="sr-only">Champion suchen</span><input id="champion-search" type="search" placeholder="Champion suchen …" autocomplete="off" spellcheck="false"></label>
+    <div class="champion-picker-meta"><span id="champion-result-count"></span><span id="pick-turn-label"></span></div>
+    <div class="champion-grid" id="champion-grid"></div>
+    <div class="champion-dialog-footer">
+      <div><strong id="selected-champion-name">Noch keinen Champion gewählt</strong><span id="champion-pick-status" role="status"></span></div>
+      <button class="matchmaking-button" id="lock-champion" type="button" disabled>Fest wählen</button>
+    </div>
+  </dialog>
+
+  <main class="page">
+    <div class="notice" id="server-notice" role="status" hidden>Verbindung zur Website unterbrochen. Verbinde erneut …</div>
+
+    <section class="ready-check-view" id="ready-check-view" aria-labelledby="ready-check-title" hidden>
+      <div class="ready-check-card">
+        <div class="ready-emblem" aria-hidden="true"><span>✓</span></div>
+        <p class="eyebrow">MATCHMAKING</p>
+        <h1 id="ready-check-title">Spiel gefunden</h1>
+        <p class="ready-check-copy">Dein Match ist bereit. Nimm es hier an, um direkt zur Champion-Auswahl zu wechseln.</p>
+        <p class="ready-check-queue" id="ready-check-queue"></p>
+        <button class="accept-button" id="accept-ready-check" type="button">Match annehmen</button>
+        <p class="ready-check-status" id="ready-check-status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="idle-view" id="idle-view" aria-labelledby="idle-title" hidden>
+      <div class="idle-card">
+        <div class="idle-emblem" aria-hidden="true">↗</div>
+        <p class="eyebrow" id="idle-eyebrow">LEAGUE OF LEGENDS</p>
+        <h1 id="idle-title">League of Legends starten</h1>
+        <p id="idle-copy">Öffne den League-Client und melde dich an. Die Verbindung zu lolbuddy wird anschließend automatisch hergestellt.</p>
+        <div class="create-lobby" id="create-lobby" hidden>
+          <label>Spielmodus<select id="create-queue-select" aria-label="Spielmodus für die neue Lobby"></select></label>
+          <button class="matchmaking-button" id="create-lobby-button" type="button">Lobby erstellen</button>
+          <p class="lobby-action-status" id="create-lobby-status" role="status"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="pregame-view" id="pregame-view" aria-labelledby="pregame-title" hidden>
+      <div class="pregame-card">
+        <div class="pregame-main">
+          <p class="eyebrow" id="pregame-eyebrow">DEINE GRUPPE</p>
+          <h1 id="pregame-title">Spielmodus</h1>
+          <p class="pregame-description" id="pregame-description"></p>
+          <div class="queue-state" id="queue-state">
+            <span class="queue-pulse" aria-hidden="true"></span>
+            <div><strong id="queue-status">Bereit zur Spielsuche</strong><span id="queue-hint">Starte die Suche im League-Client.</span></div>
+            <time id="queue-time" hidden>0:00</time>
+          </div>
+          <div class="lobby-controls">
+            <div class="lobby-control-row" id="queue-control-row">
+              <label>Spielmodus<select id="queue-select" aria-label="Spielmodus"></select></label>
+              <button class="secondary-button" id="apply-queue" type="button">Übernehmen</button>
+            </div>
+            <div class="lobby-control-row positions-row" id="positions-row">
+              <label>Primär<select id="first-position" aria-label="Primäre Position"></select></label>
+              <label>Sekundär<select id="second-position" aria-label="Sekundäre Position"></select></label>
+              <button class="secondary-button" id="apply-positions" type="button">Speichern</button>
+            </div>
+            <button class="matchmaking-button" id="matchmaking-button" type="button">Spielsuche starten</button>
+            <p class="lobby-action-status" id="lobby-action-status" role="status"></p>
+          </div>
+        </div>
+        <div class="party-panel">
+          <div class="party-heading"><h2>Deine Gruppe</h2><span id="party-count">1 Spieler</span></div>
+          <div id="party-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="dashboard-view">
+    <div class="page-heading">
+      <div><p class="eyebrow">LEAGUE OF LEGENDS</p><h1 id="phase-title">Deine Lobby</h1><p class="page-subtitle" id="phase-description">Der aktuelle Stand, direkt aus deinem Client.</p></div>
+      <div class="phase-meta"><span id="queue-label"></span><span id="draft-timer" class="draft-timer" hidden></span></div>
+    </div>
+
+    <div class="notice demo-notice" id="demo-notice" hidden>
+      <span><strong>Demo</strong> Beispiel-Draft mit echten OP.GG-Builds. Hover simulieren:</span>
+      <div class="demo-actions"><button data-demo="103">Ahri</button><button data-demo="64">Lee Sin</button><button data-demo="222">Jinx</button></div>
+    </div>
+
+    <div class="workspace">
+      <aside class="draft" aria-label="Lobby und Champion-Auswahl">
+        <details class="draft-details" id="draft-details" open>
+          <summary class="draft-heading"><span>Teams &amp; Bans</span><span id="draft-label">LIVE</span><span class="disclosure-chevron" aria-hidden="true"></span></summary>
+          <div id="teams"></div>
+          <p class="draft-hint">Champion antippen oder anklicken, um seinen Build zu öffnen.</p>
+        </details>
+      </aside>
+
+      <section class="build-panel" aria-label="Champion-Build">
+        <div class="build-toolbar">
+          <div class="build-actions">
+            <span class="follow-label" id="follow-label"><span class="follow-icon" aria-hidden="true">↳</span> Folgt deinem Champion</span>
+            <button class="text-button" id="follow-button" hidden>Zurück zu deinem Pick <span aria-hidden="true">↗</span></button>
+            <button class="champion-picker-button" id="champion-picker-button" type="button" hidden>Champion wählen</button>
+          </div>
+          <details class="build-settings">
+            <summary>Build anpassen<span class="disclosure-chevron" aria-hidden="true"></span></summary>
+            <div class="build-settings-fields">
+              <span class="mode-label" id="mode-label">Kluft der Beschwörer</span>
+              <label class="role-control">Rolle <select id="role-select" aria-label="Rolle für den Build"><option value="">League-Client</option><option value="top">Top</option><option value="jungle">Jungle</option><option value="mid">Mid</option><option value="adc">Bot / ADC</option><option value="support">Support</option></select></label>
+              <label class="tier-control">Tier <select id="tier-select" aria-label="Rangstufe für die OP.GG-Daten">
+                <option value="all"{% if default_tier == 'all' %} selected{% endif %}>Alle Ränge</option>
+                <option value="challenger"{% if default_tier == 'challenger' %} selected{% endif %}>Challenger</option>
+                <option value="grandmaster"{% if default_tier == 'grandmaster' %} selected{% endif %}>Grandmaster</option>
+                <option value="master_plus"{% if default_tier == 'master_plus' %} selected{% endif %}>Master+</option>
+                <option value="master"{% if default_tier == 'master' %} selected{% endif %}>Master</option>
+                <option value="diamond_plus"{% if default_tier == 'diamond_plus' %} selected{% endif %}>Diamond+</option>
+                <option value="diamond"{% if default_tier == 'diamond' %} selected{% endif %}>Diamond</option>
+                <option value="emerald_plus"{% if default_tier == 'emerald_plus' %} selected{% endif %}>Emerald+</option>
+                <option value="emerald"{% if default_tier == 'emerald' %} selected{% endif %}>Emerald</option>
+                <option value="platinum_plus"{% if default_tier == 'platinum_plus' %} selected{% endif %}>Platinum+</option>
+                <option value="platinum"{% if default_tier == 'platinum' %} selected{% endif %}>Platinum</option>
+                <option value="gold_plus"{% if default_tier == 'gold_plus' %} selected{% endif %}>Gold+</option>
+                <option value="gold"{% if default_tier == 'gold' %} selected{% endif %}>Gold</option>
+                <option value="silver"{% if default_tier == 'silver' %} selected{% endif %}>Silver</option>
+                <option value="bronze"{% if default_tier == 'bronze' %} selected{% endif %}>Bronze</option>
+                <option value="iron"{% if default_tier == 'iron' %} selected{% endif %}>Iron</option>
+              </select></label>
+            </div>
+          </details>
+        </div>
+        <div id="build" aria-live="polite" aria-atomic="false">
+          <div class="empty-state"><span class="empty-symbol" aria-hidden="true">↳</span><p class="eyebrow">CHAMPION-AUSWAHL</p><h2>Noch kein Champion gewählt</h2><p>Hover einen Champion im League-Client.<br>Items, Runen und Spells erscheinen hier automatisch.</p><span class="waiting"><span class="status-dot"></span> Warte auf den League-Client</span></div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="footer"><span>Build-Daten von <a href="https://op.gg/lol/champions" target="_blank" rel="noopener noreferrer">OP.GG <span aria-hidden="true">↗</span></a><span class="footer-dot">·</span><span id="footer-region">{{ region }}</span><span class="footer-dot">·</span><span id="footer-tier">{{ tier }}</span></span><span>Lokal auf deinem Rechner<span class="footer-dot">·</span>Live, ohne Neuladen</span></footer>
+    </div>
+  </main>
+</body>
+</html>

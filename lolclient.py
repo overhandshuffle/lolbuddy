@@ -1,0 +1,681 @@
+from pathlib import Path
+import time
+
+import psutil
+import requests
+import urllib3
+
+# ============================================================
+# Einstellungen
+# ============================================================
+
+POLL_INTERVAL = 0.25  # Sekunden
+START_RETRY_INTERVAL = 2.0  # Sekunden
+
+
+# League benutzt lokal ein selbstsigniertes Zertifikat.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+# ============================================================
+# League Client finden
+# ============================================================
+
+
+def find_lockfile():
+    for process in psutil.process_iter(["name", "exe"]):
+        try:
+            name = process.info["name"]
+
+            if not name:
+                continue
+
+            if name.lower() != "leagueclient.exe":
+                continue
+
+            exe = process.info["exe"]
+
+            if not exe:
+                continue
+
+            exe_path = Path(exe)
+            lockfile = exe_path.parent / "lockfile"
+
+            if lockfile.exists():
+                return lockfile
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+    raise FileNotFoundError(
+        "League Client wurde nicht gefunden.\n"
+        "Bitte League of Legends öffnen und einloggen."
+    )
+
+
+# ============================================================
+# Verbindung zur LCU herstellen
+# ============================================================
+
+
+def connect_to_lcu():
+    lockfile = find_lockfile()
+
+    content = lockfile.read_text(encoding="utf-8").strip()
+
+    parts = content.split(":")
+
+    if len(parts) != 5:
+        raise RuntimeError("Ungültiges Format der League-Lockfile.")
+
+    process_name, pid, port, password, protocol = parts
+
+    session = requests.Session()
+    session.trust_env = False  # Lokale Zugangsdaten nie an einen Proxy senden.
+
+    # LCU Basic Authentication
+    session.auth = ("riot", password)
+
+    # Lokales selbstsigniertes Zertifikat akzeptieren
+    session.verify = False
+
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        session.close()
+        raise RuntimeError("Ungültiger LCU-Port.")
+    base_url = f"https://127.0.0.1:{port}"
+
+    return session, base_url
+
+
+def wait_for_lcu():
+    """Wartet, bis der League Client läuft und seine API erreichbar ist."""
+
+    print("Warte auf den League Client. CTRL+C zum Beenden.", flush=True)
+
+    while True:
+        session = None
+
+        try:
+            session, base_url = connect_to_lcu()
+            response = session.get(
+                f"{base_url}/lol-gameflow/v1/gameflow-phase",
+                timeout=3,
+            )
+            response.raise_for_status()
+
+            print("League Client gefunden [OK]", flush=True)
+            print(f"LCU Port: {base_url.rsplit(':', 1)[-1]}", flush=True)
+            print("Mit League Client verbunden [OK]", flush=True)
+
+            return session, base_url
+
+        except (
+            FileNotFoundError,
+            OSError,
+            RuntimeError,
+            requests.exceptions.RequestException,
+        ):
+            if session is not None:
+                session.close()
+
+            time.sleep(START_RETRY_INTERVAL)
+
+
+# ============================================================
+# Championnamen laden
+# ============================================================
+
+
+def load_champions(session, base_url):
+    return {key: value["name"] for key, value in load_champion_details(session, base_url).items()}
+
+
+def load_champion_details(session, base_url):
+    url = f"{base_url}" "/lol-game-data/assets/v1/champion-summary.json"
+
+    response = session.get(url, timeout=3)
+
+    response.raise_for_status()
+
+    champions = {}
+
+    for champion in response.json():
+
+        champion_id = int(champion["id"])
+
+        name = champion.get("name", champion.get("alias", str(champion_id)))
+
+        if champion_id > 0:
+            champions[champion_id] = {
+                "name": name,
+                "alias": champion.get("alias", name),
+            }
+
+    return champions
+
+
+# ============================================================
+# Gameflow Phase
+# ============================================================
+
+
+def get_phase(session, base_url):
+    response = session.get(f"{base_url}/lol-gameflow/v1/gameflow-phase", timeout=2)
+
+    response.raise_for_status()
+    return response.json()
+
+
+def is_logged_in(session, base_url):
+    """Prüft, ob die LCU bereits bei einem League-Konto angemeldet ist."""
+
+    response = session.get(f"{base_url}/lol-login/v1/session", timeout=2)
+    if not response.ok:
+        return False
+    return response.json().get("state") == "SUCCEEDED"
+
+
+def get_queue_details(session, base_url, queue_id):
+    """Liest den lokalisierten Namen und die Beschreibung einer Queue."""
+
+    if not queue_id:
+        return {}
+    response = session.get(f"{base_url}/lol-game-queues/v1/queues/{int(queue_id)}", timeout=2)
+    if not response.ok:
+        return {}
+    data = response.json()
+    return {
+        "id": int(data.get("id", queue_id)),
+        "name": data.get("name") or data.get("shortName") or "League of Legends",
+        "description": data.get("description") or "",
+        "game_mode": data.get("gameMode") or "",
+    }
+
+
+def get_available_queues(session, base_url):
+    """Liefert nur momentan sichtbare und spielbare Matchmaking-Queues."""
+
+    response = session.get(f"{base_url}/lol-game-queues/v1/queues", timeout=4)
+    response.raise_for_status()
+    queues = []
+    for data in response.json():
+        if (
+            not data.get("isEnabled")
+            or not data.get("isVisible")
+            or data.get("queueAvailability") != "Available"
+            or data.get("isCustom")
+        ):
+            continue
+        queue_id = int(data.get("id", 0) or 0)
+        if queue_id <= 0:
+            continue
+        queues.append({
+            "id": queue_id,
+            "name": data.get("name") or data.get("shortName") or f"Queue {queue_id}",
+            "description": data.get("description") or "",
+            "game_mode": data.get("gameMode") or "",
+            "positions": bool(data.get("showPositionSelector")),
+            "priority": int(data.get("gameSelectPriority", 9999) or 9999),
+        })
+    queues.sort(key=lambda queue: (queue["priority"], queue["name"], queue["id"]))
+    return queues
+
+
+def get_matchmaking_search(session, base_url):
+    """Gibt Suchstatus und Wartezeit der laufenden Queue zurück."""
+
+    response = session.get(f"{base_url}/lol-matchmaking/v1/search", timeout=2)
+    if response.status_code == 404:
+        return {"active": False, "elapsed_seconds": 0, "estimated_seconds": 0}
+    response.raise_for_status()
+    data = response.json()
+    return {
+        "active": bool(data.get("isCurrentlyInQueue") or data.get("searchState") == "Searching"),
+        "elapsed_seconds": max(0, int(float(data.get("timeInQueue", 0) or 0))),
+        "estimated_seconds": max(0, int(float(data.get("estimatedQueueTime", 0) or 0))),
+    }
+
+
+def get_summoner_display_name(session, base_url, summoner_id):
+    """Löst eine Summoner-ID in den aktuellen Riot-Namen auf."""
+
+    if not summoner_id:
+        return ""
+    response = session.get(f"{base_url}/lol-summoner/v1/summoners/{int(summoner_id)}", timeout=2)
+    if not response.ok:
+        return ""
+    data = response.json()
+    game_name = data.get("gameName") or data.get("displayName") or ""
+    tag_line = data.get("tagLine") or ""
+    return f"{game_name} #{tag_line}" if game_name and tag_line else game_name
+
+
+def get_playable_champions(session, base_url):
+    """Liest eigene und aktuell kostenlose Champions aus dem League-Client."""
+
+    response = session.get(f"{base_url}/lol-champions/v1/owned-champions-minimal", timeout=4)
+    response.raise_for_status()
+    champions = []
+    for data in response.json():
+        ownership = data.get("ownership") or {}
+        rental = ownership.get("rental") or {}
+        playable = bool(
+            ownership.get("owned")
+            or ownership.get("loyaltyReward")
+            or ownership.get("xboxGPReward")
+            or rental.get("rented")
+            or data.get("freeToPlay")
+        )
+        champion_id = int(data.get("id", 0) or 0)
+        if champion_id <= 0 or not playable or not data.get("isVisibleInClient", True):
+            continue
+        champions.append({
+            "id": champion_id,
+            "name": data.get("name") or data.get("alias") or str(champion_id),
+            "alias": data.get("alias") or data.get("name") or str(champion_id),
+            "owned": bool(ownership.get("owned")),
+            "free_to_play": bool(data.get("freeToPlay")),
+        })
+    champions.sort(key=lambda champion: champion["name"].casefold())
+    return champions
+
+
+def get_pickable_champion_ids(session, base_url):
+    """Liest die für den aktuellen Draft tatsächlich erlaubten Champions."""
+
+    for path in (
+        "/lol-champ-select/v1/pickable-champion-ids",
+        "/lol-lobby-team-builder/champ-select/v1/pickable-champion-ids",
+    ):
+        response = session.get(f"{base_url}{path}", timeout=2)
+        if response.ok:
+            return {int(champion_id) for champion_id in response.json() if int(champion_id) > 0}
+        if response.status_code != 404:
+            response.raise_for_status()
+    return None
+
+
+def get_local_pick_action(champ_select):
+    """Findet ausschließlich die noch offene Pick-Aktion des lokalen Spielers."""
+
+    local_cell = champ_select.get("localPlayerCellId")
+    actions = [
+        action
+        for group in champ_select.get("actions", [])
+        for action in group
+        if action.get("type") == "pick"
+        and action.get("actorCellId") == local_cell
+        and not action.get("completed")
+    ]
+    if not actions:
+        return None
+    return next((action for action in actions if action.get("isInProgress")), actions[-1])
+
+
+class ChampionSelectError(RuntimeError):
+    """Der gewünschte Champion kann im aktuellen Draft nicht gewählt werden."""
+
+
+def select_champion(champion_id, *, lock=False):
+    """Setzt den eigenen Hover oder schließt den eigenen aktiven Pick ab."""
+
+    session = None
+    try:
+        session, base_url = connect_to_lcu()
+        if get_phase(session, base_url) != "ChampSelect":
+            raise ChampionSelectError("Die Champion-Auswahl ist nicht mehr aktiv.")
+        champ_select = get_champ_select_session(session, base_url)
+        action = get_local_pick_action(champ_select or {})
+        if not action:
+            raise ChampionSelectError("Für dich ist keine offene Champion-Auswahl vorhanden.")
+        if lock and not action.get("isInProgress"):
+            raise ChampionSelectError("Du bist noch nicht mit deinem Pick an der Reihe.")
+        pickable = get_pickable_champion_ids(session, base_url)
+        champion_id = int(champion_id)
+        if pickable is not None and champion_id not in pickable:
+            raise ChampionSelectError("Dieser Champion ist im aktuellen Draft nicht verfügbar.")
+        path = f"{base_url}/lol-champ-select/v1/session/actions/{int(action['id'])}"
+        response = session.patch(path, json={"championId": champion_id}, timeout=3)
+        if not response.ok:
+            raise ChampionSelectError("Der Champion konnte nicht ausgewählt werden.")
+        if lock:
+            response = session.post(f"{path}/complete", json={"championId": champion_id}, timeout=3)
+            if not response.ok:
+                raise ChampionSelectError("Der Champion konnte nicht fest gewählt werden.")
+    finally:
+        if session is not None:
+            session.close()
+
+
+class ReadyCheckUnavailable(RuntimeError):
+    """Der Ready Check ist nicht mehr aktiv oder kann nicht angenommen werden."""
+
+
+def accept_ready_check():
+    """Nimmt den aktuell sichtbaren Ready Check über die lokale LCU an."""
+
+    session = None
+    try:
+        session, base_url = connect_to_lcu()
+        if get_phase(session, base_url) != "ReadyCheck":
+            raise ReadyCheckUnavailable("Es ist gerade kein Match zum Annehmen offen.")
+        response = session.post(
+            f"{base_url}/lol-matchmaking/v1/ready-check/accept",
+            timeout=3,
+        )
+        if response.status_code in {404, 409}:
+            raise ReadyCheckUnavailable("Der Ready Check ist bereits abgelaufen.")
+        response.raise_for_status()
+    finally:
+        if session is not None:
+            session.close()
+
+
+class LobbyActionError(RuntimeError):
+    """Eine gewünschte Änderung ist im aktuellen Lobbyzustand nicht möglich."""
+
+
+def _lobby_action(method, path, *, phases, payload=None):
+    session = None
+    try:
+        session, base_url = connect_to_lcu()
+        if get_phase(session, base_url) not in phases:
+            raise LobbyActionError("Die Lobby befindet sich nicht mehr im passenden Zustand.")
+        response = session.request(method, f"{base_url}{path}", json=payload, timeout=4)
+        if not response.ok:
+            try:
+                data = response.json()
+                message = data.get("message") or data.get("errorCode")
+            except (ValueError, TypeError, AttributeError):
+                message = None
+            raise LobbyActionError(message or "Der League-Client hat die Aktion abgelehnt.")
+    finally:
+        if session is not None:
+            session.close()
+
+
+def change_lobby_queue(queue_id):
+    _lobby_action("POST", "/lol-lobby/v2/lobby", phases={"None", "Lobby"}, payload={"queueId": int(queue_id)})
+
+
+def set_position_preferences(first, second):
+    _lobby_action(
+        "PUT",
+        "/lol-lobby/v2/lobby/members/localMember/position-preferences",
+        phases={"Lobby"},
+        payload={"firstPreference": first, "secondPreference": second},
+    )
+
+
+def start_matchmaking():
+    _lobby_action("POST", "/lol-lobby/v2/lobby/matchmaking/search", phases={"Lobby"})
+
+
+def stop_matchmaking():
+    _lobby_action("DELETE", "/lol-lobby/v2/lobby/matchmaking/search", phases={"Matchmaking"})
+
+
+# ============================================================
+# Champ Select Session
+# ============================================================
+
+
+def get_champ_select_session(session, base_url):
+    response = session.get(f"{base_url}/lol-champ-select/v1/session", timeout=2)
+
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+
+# ============================================================
+# Teamstatus erkennen
+# ============================================================
+
+
+POSITION_NAMES = {
+    "top": "TOP",
+    "jungle": "JUNGLE",
+    "middle": "MID",
+    "mid": "MID",
+    "bottom": "BOT",
+    "bot": "BOT",
+    "utility": "SUPPORT",
+    "support": "SUPPORT",
+}
+
+
+def get_pick_actions(champ_select):
+    """Ordnet jedem Spieler seine aktuell sichtbare Pick-Action zu."""
+
+    pick_actions = {}
+
+    for action_group in champ_select.get("actions", []):
+        for action in action_group:
+            if action.get("type") != "pick":
+                continue
+
+            cell_id = action.get("actorCellId")
+
+            if cell_id is not None:
+                pick_actions[cell_id] = action
+
+    return pick_actions
+
+
+def get_team_state(champ_select, team_key, pick_actions):
+    """Liefert Champion, Status und Position aller Spieler eines Teams."""
+
+    local_cell_id = champ_select.get("localPlayerCellId")
+    team_state = []
+
+    for player in champ_select.get(team_key, []):
+        cell_id = player.get("cellId")
+        action = pick_actions.get(cell_id, {})
+        action_champion_id = int(action.get("championId", 0) or 0)
+        selected_champion_id = int(player.get("championId", 0) or 0)
+        pick_intent = int(player.get("championPickIntent", 0) or 0)
+
+        if action_champion_id and not action.get("completed", False):
+            champion_id = action_champion_id
+            status = "HOVER"
+        elif selected_champion_id:
+            champion_id = selected_champion_id
+            status = "LOCKED"
+        elif action_champion_id:
+            champion_id = action_champion_id
+            status = "LOCKED"
+        elif pick_intent:
+            champion_id = pick_intent
+            status = "HOVER"
+        else:
+            champion_id = 0
+            status = "OFFEN"
+
+        raw_position = (
+            player.get("assignedPosition")
+            or player.get("selectedPosition")
+            or player.get("position")
+            or ""
+        )
+        position = POSITION_NAMES.get(
+            str(raw_position).lower(), str(raw_position).upper()
+        )
+
+        team_state.append(
+            (
+                cell_id,
+                champion_id,
+                status,
+                position,
+                team_key == "myTeam" and cell_id == local_cell_id,
+            )
+        )
+
+    return tuple(team_state)
+
+
+def print_team_overview(own_team, enemy_team, champions):
+    """Gibt den vollständigen, aktuell sichtbaren Draft aus."""
+
+    print()
+    print("========== CHAMP SELECT ==========")
+
+    for title, team in (("EIGENES TEAM", own_team), ("GEGNERISCHES TEAM", enemy_team)):
+        print(f"{title}:")
+
+        if not team:
+            print("  (noch keine Daten sichtbar)")
+            continue
+
+        for slot, (_, champion_id, status, position, is_local) in enumerate(team, 1):
+            champion_name = (
+                champions.get(champion_id, f"Champion {champion_id}")
+                if champion_id
+                else "-"
+            )
+            position_text = position or "POSITION ?"
+            local_text = " (DU)" if is_local else ""
+
+            print(
+                f"  {slot}. {position_text:<10} | {status:<6} | "
+                f"{champion_name}{local_text}"
+            )
+
+    print("==================================", flush=True)
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+
+def main():
+
+    print()
+    print("===================================")
+    print("          LOLBUDDY")
+    print("===================================")
+    print()
+
+    # --------------------------------------------------------
+    # LCU verbinden
+    # --------------------------------------------------------
+
+    session, base_url = wait_for_lcu()
+
+    # --------------------------------------------------------
+    # Championdaten laden
+    # --------------------------------------------------------
+
+    try:
+
+        champions = load_champions(session, base_url)
+
+        print(f"{len(champions)} Champions geladen [OK]", flush=True)
+
+    except Exception as error:
+
+        print("Championnamen konnten nicht " f"geladen werden: {error}", flush=True)
+
+        champions = {}
+
+    print()
+    print("Überwachung läuft. CTRL+C zum Beenden.")
+    print()
+
+    last_phase = None
+    last_draft_state = None
+
+    # --------------------------------------------------------
+    # Hauptschleife
+    # --------------------------------------------------------
+
+    while True:
+
+        try:
+
+            phase = get_phase(session, base_url)
+
+            # Phase hat sich geändert
+            if phase != last_phase:
+
+                print(f"Phase: {phase}", flush=True)
+
+                last_phase = phase
+
+                # Beim Verlassen von ChampSelect
+                # zurücksetzen
+                if phase != "ChampSelect":
+
+                    last_draft_state = None
+
+            # ------------------------------------------------
+            # Champ Select
+            # ------------------------------------------------
+
+            if phase == "ChampSelect":
+
+                champ_select = get_champ_select_session(session, base_url)
+
+                if champ_select is None:
+
+                    time.sleep(POLL_INTERVAL)
+
+                    continue
+
+                pick_actions = get_pick_actions(champ_select)
+                own_team = get_team_state(champ_select, "myTeam", pick_actions)
+                enemy_team = get_team_state(champ_select, "theirTeam", pick_actions)
+                draft_state = (own_team, enemy_team)
+
+                # Nur dann erneut ausgeben, wenn sich Picks, Status oder
+                # Positionen im Draft geändert haben.
+                if draft_state != last_draft_state:
+                    print_team_overview(own_team, enemy_team, champions)
+                    last_draft_state = draft_state
+
+        except requests.exceptions.ConnectionError:
+
+            print("Verbindung zum League Client verloren.", flush=True)
+
+            break
+
+        except requests.exceptions.Timeout:
+
+            print("LCU Timeout", flush=True)
+
+        except KeyboardInterrupt:
+
+            print()
+            print("LOLBUDDY beendet.")
+
+            break
+
+        except Exception as error:
+
+            print(f"Fehler: {type(error).__name__}: " f"{error}", flush=True)
+
+        time.sleep(POLL_INTERVAL)
+
+
+# ============================================================
+# Programmstart
+# ============================================================
+
+if __name__ == "__main__":
+
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        print("\nLOLBUDDY beendet.")
+
+    except Exception as error:
+
+        print()
+        print("FATALER FEHLER:")
+        print(f"{type(error).__name__}: {error}")
+
+        input("\nEnter drücken zum Beenden...")

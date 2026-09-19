@@ -1,0 +1,137 @@
+# lolbuddy
+
+Eine lokale Website für deinen League-Draft. Sie zeigt deine Lobby, beide Teams,
+Hover, fest gewählte Champions, Rollen und Bans. Dein eigener Champion wird
+automatisch verfolgt; sein OP.GG-Build erscheint mit Bildern für Items, Runen,
+Runen-Splitter und Summoner Spells.
+
+## Starten
+
+Python 3.10 oder neuer:
+
+```powershell
+python -m pip install -r requirements.txt
+python app.py
+```
+
+Der Browser öffnet **http://127.0.0.1:5000**. Gleichzeitig ist lolbuddy im
+lokalen Netzwerk für Handy und Tablet erreichbar. League kannst du vorher oder
+danach starten. Nur `app.py` muss laufen: Es verwendet `lolclient.py` und
+`opgg.py` direkt. Beenden mit **Strg+C** im Terminal.
+
+Falls Port 5000 schon belegt ist:
+
+```powershell
+python app.py --port 5050
+```
+
+Beim Start wird auch die WLAN-Adresse ausgegeben, beispielsweise
+`http://192.168.178.31:5000`. Am PC zeigt **Am Handy öffnen** einen lokal erzeugten
+QR-Code für diese Adresse. Das Handy muss sich im selben WLAN befinden; `--lan`
+ist nicht mehr nötig.
+
+## Benutzung
+
+- Vor der Champion-Auswahl zeigt lolbuddy den ausgewählten Spielmodus und alle
+  beigetretenen Gruppenmitglieder. Während der Spielsuche erscheinen die bisherige
+  Suchzeit und, sofern vom Client geliefert, die geschätzte Wartezeit.
+- Wenn noch keine Lobby besteht, kannst du einen verfügbaren Modus auswählen und
+  die Lobby direkt auf der Website erstellen.
+- Als Gruppenleiter kannst du in dieser Ansicht einen aktuell verfügbaren Spielmodus
+  wählen und die Spielsuche starten oder abbrechen. In Modi mit Positionswahl lassen
+  sich die primäre und sekundäre Position direkt dort setzen.
+- Sobald ein Match gefunden wurde, erscheint auf der Website eine eigene
+  **Spiel gefunden**-Ansicht. **Match annehmen** bestätigt den Ready Check im
+  League-Client; anschließend öffnet sich automatisch wieder die Draft-Ansicht.
+- Hover einen Champion **im League-Client**: Der Build erscheint automatisch.
+- Hover einen Champion **auf der Website**: Zeigt vorübergehend dessen Build.
+  Ein Klick hält ihn offen; „Zurück zu deinem Pick“ folgt wieder deinem Champion.
+  Das funktioniert auch mit Tastaturfokus bzw. auf dem Handy per Tippen.
+- **Build anpassen** öffnet die Auswahl für Rolle und Tier. Weitere Statistiken
+  und situative Items lassen sich bei Bedarf aufklappen.
+- **Rolle**: Standardmäßig die vom Client zugewiesene Rolle. Ohne Rollendaten
+  verwendet OP.GG die meistgespielte Rolle. Du kannst sie manuell ändern. Falls
+  OP.GG für eine Champion-/Rollen-Kombination keine Daten veröffentlicht, zeigt
+  lolbuddy das ausdrücklich an und ersetzt die Rolle nicht durch eine andere.
+- **Tier**: Die Rangstufe der OP.GG-Daten lässt sich unter **Build anpassen**
+  auswählen. Die Auswahl bleibt beim Wechsel des Champions erhalten.
+- **Modus**: lolbuddy erkennt ARAM über den League-Client. In ARAM verwendet es
+  automatisch OP.GGs globale ARAM-Builds; Rolle und Rang-Tier sind dort deaktiviert.
+- Ein neuer eigener Champion-Hover aktiviert wieder die automatische Ansicht.
+- Während der Champion-Auswahl öffnet **Champion wählen** eine durchsuchbare Liste
+  deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt den Hover im
+  Client; **Fest wählen** schließt den Pick während deines Zuges ab.
+- Alternative Core-Builds, Runenseiten und Spells lassen sich aufklappen.
+- Auf dem Handy sind **Teams & Bans** zunächst eingeklappt. **Items & Spells**
+  und **Runen** haben auf schmalen Bildschirmen eigene Ansichten. Die Champion-Liste
+  scrollt innerhalb der Auswahl; Suche und **Fest wählen** bleiben erreichbar.
+- **Runen in League übernehmen** erstellt beim ersten Mal eine Seite wie
+  `Ahri Mid` oder `Ahri ARAM` und aktiviert sie. Weitere Importe aktualisieren
+  über die gespeicherte Seiten-ID nur diese verwaltete Seite; eigene Seiten
+  bleiben unverändert.
+- Dein letzter Draft und Build bleiben im Spiel sichtbar. Nach einem Neustart
+  der Website mitten im Spiel ist ein vorheriger Draft nicht mehr vorhanden.
+
+Die Oberfläche verbindet sich nach Client- oder Server-Unterbrechungen erneut.
+Die Champion-Auswahl wird alle 250 ms gelesen; Änderungen werden per
+Server-Sent Events direkt an den Browser gesendet. OP.GG-Abfragen laufen separat
+und werden pro Champion, Rolle, Tier und Modus für 15 Minuten zwischengespeichert. Fehler werden
+für zehn Sekunden zwischengespeichert. Schnelle Championwechsel können keinen
+alten Build über den aktuellen schreiben.
+
+## Vorschau ohne League
+
+```powershell
+python app.py --demo
+```
+
+Ein ausdrücklich markierter Beispiel-Draft mit Umschaltung zwischen Ahri,
+Lee Sin und Jinx. Die Build-Daten kommen auch hier live von OP.GG und benötigen
+Internet. Der Demo-Modus verändert den League-Client erst, wenn du ausdrücklich
+den Button zum Übernehmen der Runen anklickst.
+
+Weitere Optionen:
+
+```powershell
+python app.py --region euw --tier emerald_plus --no-browser
+python opgg.py Ahri --position mid --json
+python runeclient.py Ahri --position mid
+python runeclient.py Ahri --mode aram
+python lolclient.py
+```
+
+## Daten und Grenzen
+
+„Empfohlen“ bedeutet den zuerst von OP.GG gelisteten populären Build für die
+gewählte Rolle und das gewählte Tier, standardmäßig EUW / Emerald+. Angezeigt werden dessen tatsächliche
+Pick- und Winraten, keine errechnete Garantie für den besten Build in jedem Match.
+Spätere Items sind situative Alternativen; die ersten drei Core-Items werden in
+Kaufreihenfolge angezeigt. Für ARAM werden stattdessen automatisch OP.GGs globale
+ARAM-Daten mit den dortigen Items, Runen und Summoner Spells geladen.
+
+OP.GG wird aus den öffentlich ausgelieferten Seitendaten gelesen. Änderungen an
+deren Seitenformat können eine Anpassung des Parsers nötig machen. Bilder werden
+vom OP.GG-CDN geladen. Item- und Runennamen entsprechen der englischen Datenquelle.
+
+Die Website bindet ausschließlich an `127.0.0.1` und liest die lokale League-API.
+Zugangsdaten bleiben im Python-Prozess. Nur der ausdrücklich ausgelöste Runenimport
+und der Button zum Annehmen eines gefundenen Matches schreiben in den Client. Die Flask-Instanz ist für den
+lokalen Betrieb gedacht.
+
+## Prüfen
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Die Tests prüfen unter anderem Hover und Champion-Tausch, Wiederverbindung,
+OP.GG-Tabellenreferenzen, Item-Mengen, Spells, Rune-Auswahl, Cache und Live-Events.
+Sie benötigen keinen League-Client und keine Internetverbindung.
+
+Datenquellen: [OP.GG](https://op.gg/lol/champions) und die
+[lokale League Client API](https://developer.riotgames.com/docs/lol#league-client-api).
+
+lolbuddy is not endorsed by Riot Games and does not reflect the views or opinions
+of Riot Games or anyone officially involved in producing or managing Riot Games
+properties. Riot Games and all associated properties are trademarks or registered
+trademarks of Riot Games, Inc.
