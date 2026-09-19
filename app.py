@@ -8,8 +8,10 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from io import BytesIO
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import socket
+import sys
 import threading
 import time
 import webbrowser
@@ -18,6 +20,7 @@ from flask import Flask, Response, jsonify, render_template, request
 import requests
 import qrcode
 from qrcode.image.svg import SvgPathImage
+from werkzeug.serving import make_server
 
 import lolclient
 import opgg
@@ -34,6 +37,98 @@ LOBBY_ACTION_ERRORS = (
 )
 INSTANCE_MUTEX_NAME = r"Local\LOLBUDDY-3DA92144-171E-45C6-AF7F-88A42D0B639E"
 INSTANCE_STATE_PATH = runeclient.STATE_PATH.with_name("instance.json")
+LOG_PATH = runeclient.STATE_PATH.parent / "logs" / "lolbuddy.log"
+
+
+def configure_logging():
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    handlers = [
+        RotatingFileHandler(
+            LOG_PATH, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
+    ]
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler())
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=handlers,
+        force=True,
+    )
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+
+def show_error_dialog(message):
+    """Show fatal startup failures even in the windowless EXE."""
+
+    detail = f"{message}\n\nWeitere Details:\n{LOG_PATH}"
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(None, detail, "lolbuddy – Fehler", 0x10)
+            return
+        except (AttributeError, OSError):
+            pass
+    if sys.stderr is not None:
+        print(detail, file=sys.stderr)
+
+
+def open_log_file():
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LOG_PATH.touch(exist_ok=True)
+    if os.name == "nt":
+        os.startfile(str(LOG_PATH))
+    else:
+        webbrowser.open(LOG_PATH.as_uri())
+
+
+def tray_image():
+    """Create a small icon without depending on an external ICO file."""
+
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle(
+        (2, 2, 61, 61), radius=14, fill=(15, 20, 20, 255),
+        outline=(183, 205, 154, 255), width=3,
+    )
+    draw.line((19, 16, 19, 46, 32, 46), fill=(183, 205, 154, 255), width=5)
+    draw.line((38, 16, 38, 46), fill=(183, 205, 154, 255), width=5)
+    draw.arc((30, 27, 51, 48), -90, 90, fill=(183, 205, 154, 255), width=5)
+    return image
+
+
+def create_tray_icon(url):
+    import pystray
+
+    def open_dashboard(_icon, _item):
+        webbrowser.open(url)
+
+    def open_qr(_icon, _item):
+        webbrowser.open(f"{url}/?show_qr=1")
+
+    def open_logs(icon, _item):
+        try:
+            open_log_file()
+        except OSError as error:
+            log.exception("Logdatei konnte nicht geöffnet werden: %s", error)
+            icon.notify(f"Logdatei konnte nicht geöffnet werden: {error}", "lolbuddy")
+
+    def quit_application(icon, _item):
+        log.info("lolbuddy wird über das Tray-Menü beendet.")
+        icon.stop()
+
+    menu = pystray.Menu(
+        pystray.MenuItem("lolbuddy öffnen", open_dashboard, default=True),
+        pystray.MenuItem("QR-Code anzeigen", open_qr),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Logs / Fehler anzeigen", open_logs),
+        pystray.MenuItem("Beenden", quit_application),
+    )
+    return pystray.Icon("lolbuddy", tray_image(), "lolbuddy", menu)
 
 
 class SingleInstance:
@@ -235,6 +330,7 @@ class LcuMonitor:
 
     def run(self):
         session = None
+        connected = False
         champions, playable_champions = {}, []
         previous_phase = None
         queue, game_mode = "", ""
@@ -246,6 +342,8 @@ class LcuMonitor:
             try:
                 if session is None:
                     session, base_url = lolclient.connect_to_lcu()
+                    connected = True
+                    log.info("League-Client verbunden.")
                     champions = lolclient.load_champion_details(session, base_url)
                     playable_champions = lolclient.get_playable_champions(session, base_url)
                     queue_cache, member_names = {}, {}
@@ -321,7 +419,10 @@ class LcuMonitor:
                 else:
                     delay = 1
                 self.state.publish(value)
-            except (OSError, RuntimeError, requests.RequestException, ValueError, KeyError, TypeError):
+            except (OSError, RuntimeError, requests.RequestException, ValueError, KeyError, TypeError) as error:
+                if connected:
+                    log.warning("Verbindung zum League-Client verloren: %s", error)
+                connected = False
                 if session is not None:
                     session.close()
                 session = None
@@ -625,6 +726,7 @@ def local_network_url(port):
 
 
 def main():
+    configure_logging()
     parser = argparse.ArgumentParser(description="LOLBUDDY – lokales Live-Dashboard")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--region", default="euw")
@@ -635,41 +737,64 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("Der Port muss zwischen 1 und 65535 liegen.")
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
     host = "0.0.0.0"
     url = f"http://127.0.0.1:{args.port}"
     startup_url = f"{url}/?show_qr=1"
     instance = SingleInstance()
     if not instance.acquire():
         running_url = _running_instance_url(args.port)
-        print(f"LOLBUDDY läuft bereits. Öffne {running_url}", flush=True)
+        log.info("LOLBUDDY läuft bereits. Öffne %s", running_url)
         if not args.no_browser:
             webbrowser.open(running_url)
         return
 
     _save_instance_port(args.port)
+    server = None
+    server_thread = None
+    monitor = None
+    builds = None
     try:
         lan_url = local_network_url(args.port)
-        print(f"LOLBUDDY läuft lokal auf {url}\nHandy im selben WLAN: {lan_url}", flush=True)
-        print("Beenden mit Strg+C.", flush=True)
+        log.info("LOLBUDDY startet lokal auf %s; LAN-Adresse: %s", url, lan_url)
         state, builds = LiveState(), BuildCache(args.region, args.tier)
         app = create_app(state, builds, lan_url=lan_url)
         monitor = LcuMonitor(state)
         monitor.start()
+        try:
+            server = make_server(host, args.port, app, threaded=True)
+        except (OSError, SystemExit) as error:
+            raise RuntimeError(
+                f"Port {args.port} ist bereits belegt. Beende das andere Programm "
+                "oder starte lolbuddy mit einem anderen Port."
+            ) from error
+        server_thread = threading.Thread(
+            target=server.serve_forever, name="lolbuddy-webserver", daemon=True
+        )
+        server_thread.start()
         if not args.no_browser:
             opener = threading.Timer(1, webbrowser.open, args=(startup_url,))
             opener.daemon = True
             opener.start()
-        try:
-            app.run(host=host, port=args.port, threaded=True, use_reloader=False)
-        finally:
+        tray = create_tray_icon(url)
+        log.info("lolbuddy ist bereit. Bedienung und Beenden erfolgen über das Tray-Symbol.")
+        tray.run()
+    except Exception as error:
+        log.exception("lolbuddy konnte nicht gestartet werden: %s", error)
+        show_error_dialog(str(error))
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        if server_thread is not None:
+            server_thread.join(timeout=5)
+        if monitor is not None:
             monitor.stop.set()
             monitor.thread.join(timeout=5)
+        if builds is not None:
             builds.close()
-    finally:
         _clear_instance_state()
         instance.close()
+        log.info("lolbuddy wurde beendet.")
 
 
 if __name__ == "__main__":

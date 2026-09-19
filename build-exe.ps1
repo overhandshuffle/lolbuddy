@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$OneDir,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$Console
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,12 +45,13 @@ try {
     }
 
     $BundleMode = if ($OneDir) { "--onedir" } else { "--onefile" }
+    $ConsoleMode = if ($Console) { "--console" } else { "--windowed" }
     $PyInstallerArgs = @(
         "-m", "PyInstaller",
         "--noconfirm",
         "--clean",
         $BundleMode,
-        "--console",
+        $ConsoleMode,
         "--name", "lolbuddy",
         "--add-data", "${ProjectRoot}\templates;templates",
         "--add-data", "${ProjectRoot}\static;static",

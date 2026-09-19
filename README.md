@@ -17,7 +17,8 @@ python app.py
 Der Browser öffnet **http://127.0.0.1:5000**. Gleichzeitig ist lolbuddy im
 lokalen Netzwerk für Handy und Tablet erreichbar. League kannst du vorher oder
 danach starten. Nur `app.py` muss laufen: Es verwendet `lolclient.py` und
-`opgg.py` direkt. Beenden mit **Strg+C** im Terminal.
+`opgg.py` direkt. Bei einem Start über Python erscheint das lolbuddy-Symbol im
+Windows-Infobereich; über dessen Menü lässt sich die Anwendung beenden.
 
 Falls Port 5000 schon belegt ist:
 
@@ -45,14 +46,20 @@ Das Ergebnis liegt unter `dist\lolbuddy.exe`. Das Skript verwendet eine eigene
 
 # Tests bei einem wiederholten lokalen Build auslassen
 .\build-exe.ps1 -SkipTests
+
+# Diagnose-Build mit zusätzlichem Konsolenfenster
+.\build-exe.ps1 -Console
 ```
 
 Beim ersten Start kann die Windows-Firewall nach Netzwerkzugriff fragen. Für die
 Nutzung nur auf diesem PC genügt privater bzw. lokaler Zugriff; für den Zugriff
-vom Handy muss die EXE im privaten Heimnetz zugelassen sein. Die Konsole bleibt
-absichtlich sichtbar: Dort stehen Startfehler, und mit `Strg+C` wird lolbuddy
-sauber beendet. Die ID der von lolbuddy verwalteten Runenseite liegt dauerhaft
-unter `%LOCALAPPDATA%\lolbuddy\rune-page.json` und wird nicht in die EXE gepackt.
+vom Handy muss die EXE im privaten Heimnetz zugelassen sein. Die EXE läuft ohne
+Konsolenfenster im Windows-Infobereich. Ein Doppelklick auf das Tray-Symbol öffnet
+lolbuddy; das Kontextmenü bietet außerdem **QR-Code anzeigen**,
+**Logs / Fehler anzeigen** und **Beenden**. Nicht behebbare Startfehler erscheinen
+als Windows-Dialog. Die rotierenden Logs liegen unter
+`%LOCALAPPDATA%\lolbuddy\logs\lolbuddy.log`. Die ID der von lolbuddy verwalteten
+Runenseite liegt dauerhaft unter `%LOCALAPPDATA%\lolbuddy\rune-page.json` und wird nicht in die EXE gepackt.
 Eine vorhandene ID aus der Python-Version übernimmt das Build-Skript einmalig.
 Wird die EXE ein zweites Mal geöffnet, erkennt sie die laufende Instanz, öffnet
 nur deren Browseroberfläche und beendet den zweiten Prozess wieder.
