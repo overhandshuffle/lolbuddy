@@ -422,6 +422,7 @@ def create_app(state=None, builds=None, *, lan_url=""):
             default_tier=builds.tier,
             tier=builds.tier.replace("_plus", "+").replace("_", " ").title(),
             lan_url=lan_url,
+            show_phone_dialog=request.args.get("show_qr") == "1",
         )
 
     @app.get("/api/lan-qr.svg")
@@ -638,6 +639,7 @@ def main():
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     host = "0.0.0.0"
     url = f"http://127.0.0.1:{args.port}"
+    startup_url = f"{url}/?show_qr=1"
     instance = SingleInstance()
     if not instance.acquire():
         running_url = _running_instance_url(args.port)
@@ -656,7 +658,7 @@ def main():
         monitor = LcuMonitor(state)
         monitor.start()
         if not args.no_browser:
-            opener = threading.Timer(1, webbrowser.open, args=(url,))
+            opener = threading.Timer(1, webbrowser.open, args=(startup_url,))
             opener.daemon = True
             opener.start()
         try:

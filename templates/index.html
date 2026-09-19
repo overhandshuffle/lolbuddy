@@ -19,7 +19,7 @@
   </header>
 
   {% if lan_url %}
-  <dialog class="phone-dialog" id="phone-dialog" aria-labelledby="phone-dialog-title">
+  <dialog class="phone-dialog" id="phone-dialog" aria-labelledby="phone-dialog-title" data-auto-open="{{ 'true' if show_phone_dialog else 'false' }}">
     <button class="dialog-close" id="phone-dialog-close" type="button" aria-label="Schließen">×</button>
     <p class="eyebrow">HANDY VERBINDEN</p>
     <h2 id="phone-dialog-title">Im selben WLAN öffnen</h2>

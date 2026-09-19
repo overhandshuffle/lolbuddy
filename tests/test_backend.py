@@ -530,6 +530,9 @@ class CacheAndWebTests(unittest.TestCase):
         page = client.get("/").get_data(as_text=True)
         self.assertIn('id="phone-button"', page)
         self.assertIn("http://192.168.1.20:5000", page)
+        self.assertIn('data-auto-open="false"', page)
+        startup_page = client.get("/?show_qr=1").get_data(as_text=True)
+        self.assertIn('data-auto-open="true"', startup_page)
 
     def test_local_network_url_uses_the_selected_port(self):
         probe = Mock()

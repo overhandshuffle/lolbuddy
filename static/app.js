@@ -228,6 +228,12 @@ $("#phone-dialog-close")?.addEventListener("click", () => phoneDialog.close());
 phoneDialog?.addEventListener("click", event => {
   if (event.target === phoneDialog) phoneDialog.close();
 });
+if (phoneDialog?.dataset.autoOpen === "true") {
+  phoneDialog.showModal();
+  const cleanUrl = new URL(window.location.href);
+  cleanUrl.searchParams.delete("show_qr");
+  window.history.replaceState(null, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+}
 
 function pickerChampions() {
   const pickable = new Set(state?.pickable_champion_ids || []);
