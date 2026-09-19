@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,22 @@ import opgg
 
 LEGACY_PAGE_PREFIX = "LOLBUDDY |"
 MAX_PAGE_NAME_LENGTH = 25
-STATE_PATH = Path(__file__).with_name(".lolbuddy-rune-page.json")
+
+
+def _default_state_path() -> Path:
+    """Return a persistent, writable state path for source and frozen builds."""
+
+    configured = os.environ.get("LOLBUDDY_DATA_DIR")
+    if configured:
+        data_dir = Path(configured).expanduser()
+    elif os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        data_dir = Path(os.environ["LOCALAPPDATA"]) / "lolbuddy"
+    else:
+        data_dir = Path.home() / ".local" / "state" / "lolbuddy"
+    return data_dir / "rune-page.json"
+
+
+STATE_PATH = _default_state_path()
 ROLE_NAMES = {
     "top": "Top",
     "jungle": "Jungle",
@@ -70,6 +86,7 @@ def _save_managed_id(state_path: Path | None, page_id: int) -> None:
         return
     temporary = state_path.with_suffix(state_path.suffix + ".tmp")
     try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
         temporary.write_text(
             json.dumps({"page_id": page_id}, indent=2) + "\n", encoding="utf-8"
         )

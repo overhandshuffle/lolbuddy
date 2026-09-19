@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import threading
 from tempfile import TemporaryDirectory
@@ -326,6 +327,33 @@ class ClientTests(unittest.TestCase):
 
 
 class CacheAndWebTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows named mutex")
+    def test_single_instance_mutex_rejects_second_process(self):
+        name = rf"Local\LOLBUDDY-test-{id(self)}"
+        first = app.SingleInstance(name)
+        second = app.SingleInstance(name)
+        self.assertTrue(first.acquire())
+        try:
+            self.assertFalse(second.acquire())
+        finally:
+            second.close()
+            first.close()
+
+        after_close = app.SingleInstance(name)
+        try:
+            self.assertTrue(after_close.acquire())
+        finally:
+            after_close.close()
+
+    def test_running_instance_port_is_persisted(self):
+        with TemporaryDirectory() as directory:
+            state_path = Path(directory) / "nested" / "instance.json"
+            with patch.object(app, "INSTANCE_STATE_PATH", state_path):
+                app._save_instance_port(54321)
+                self.assertEqual(app._running_instance_url(5000), "http://127.0.0.1:54321")
+                app._clear_instance_state()
+                self.assertFalse(state_path.exists())
+
     def test_cache_deduplicates_parallel_requests_and_separates_roles(self):
         cache = app.BuildCache()
         entered, release = threading.Event(), threading.Event()

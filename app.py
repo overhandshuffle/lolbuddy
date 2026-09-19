@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from io import BytesIO
 import json
 import logging
+import os
 import socket
 import threading
 import time
@@ -31,6 +32,77 @@ LOBBY_ACTION_ERRORS = (
     lolclient.LobbyActionError, FileNotFoundError, OSError, RuntimeError,
     requests.RequestException,
 )
+INSTANCE_MUTEX_NAME = r"Local\LOLBUDDY-3DA92144-171E-45C6-AF7F-88A42D0B639E"
+INSTANCE_STATE_PATH = runeclient.STATE_PATH.with_name("instance.json")
+
+
+class SingleInstance:
+    """Keep exactly one lolbuddy process in the current Windows session."""
+
+    def __init__(self, name=INSTANCE_MUTEX_NAME):
+        self.name = name
+        self._handle = None
+        self._close_handle = None
+
+    def acquire(self):
+        if os.name != "nt":
+            return True
+
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_mutex = kernel32.CreateMutexW
+        create_mutex.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+        create_mutex.restype = wintypes.HANDLE
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = (wintypes.HANDLE,)
+        close_handle.restype = wintypes.BOOL
+
+        ctypes.set_last_error(0)
+        handle = create_mutex(None, False, self.name)
+        if not handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+            close_handle(handle)
+            return False
+
+        self._handle = handle
+        self._close_handle = close_handle
+        return True
+
+    def close(self):
+        if self._handle is not None:
+            self._close_handle(self._handle)
+            self._handle = None
+
+
+def _save_instance_port(port):
+    try:
+        INSTANCE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = INSTANCE_STATE_PATH.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"port": port}) + "\n", encoding="utf-8")
+        temporary.replace(INSTANCE_STATE_PATH)
+    except OSError:
+        log.warning("Die Information zur laufenden Instanz konnte nicht gespeichert werden.")
+
+
+def _running_instance_url(fallback_port):
+    try:
+        data = json.loads(INSTANCE_STATE_PATH.read_text(encoding="utf-8"))
+        port = int(data["port"])
+        if 1 <= port <= 65535:
+            return f"http://127.0.0.1:{port}"
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        pass
+    return f"http://127.0.0.1:{fallback_port}"
+
+
+def _clear_instance_state():
+    try:
+        INSTANCE_STATE_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def empty_state():
@@ -566,23 +638,36 @@ def main():
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     host = "0.0.0.0"
     url = f"http://127.0.0.1:{args.port}"
-    lan_url = local_network_url(args.port)
-    print(f"LOLBUDDY läuft lokal auf {url}\nHandy im selben WLAN: {lan_url}", flush=True)
-    print("Beenden mit Strg+C.", flush=True)
-    state, builds = LiveState(), BuildCache(args.region, args.tier)
-    app = create_app(state, builds, lan_url=lan_url)
-    monitor = LcuMonitor(state)
-    monitor.start()
-    if not args.no_browser:
-        opener = threading.Timer(1, webbrowser.open, args=(url,))
-        opener.daemon = True
-        opener.start()
+    instance = SingleInstance()
+    if not instance.acquire():
+        running_url = _running_instance_url(args.port)
+        print(f"LOLBUDDY läuft bereits. Öffne {running_url}", flush=True)
+        if not args.no_browser:
+            webbrowser.open(running_url)
+        return
+
+    _save_instance_port(args.port)
     try:
-        app.run(host=host, port=args.port, threaded=True, use_reloader=False)
+        lan_url = local_network_url(args.port)
+        print(f"LOLBUDDY läuft lokal auf {url}\nHandy im selben WLAN: {lan_url}", flush=True)
+        print("Beenden mit Strg+C.", flush=True)
+        state, builds = LiveState(), BuildCache(args.region, args.tier)
+        app = create_app(state, builds, lan_url=lan_url)
+        monitor = LcuMonitor(state)
+        monitor.start()
+        if not args.no_browser:
+            opener = threading.Timer(1, webbrowser.open, args=(url,))
+            opener.daemon = True
+            opener.start()
+        try:
+            app.run(host=host, port=args.port, threaded=True, use_reloader=False)
+        finally:
+            monitor.stop.set()
+            monitor.thread.join(timeout=5)
+            builds.close()
     finally:
-        monitor.stop.set()
-        monitor.thread.join(timeout=5)
-        builds.close()
+        _clear_instance_state()
+        instance.close()
 
 
 if __name__ == "__main__":

@@ -25,6 +25,38 @@ Falls Port 5000 schon belegt ist:
 python app.py --port 5050
 ```
 
+## Windows-EXE bauen
+
+Auf Windows erzeugt das Build-Skript standardmäßig eine einzelne ausführbare
+Datei. Python muss dafür installiert sein; League-Spieler benötigen Python später
+nicht mehr zum Starten der fertigen EXE.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
+```
+
+Das Ergebnis liegt unter `dist\lolbuddy.exe`. Das Skript verwendet eine eigene
+`.build-venv`, installiert die benötigten Pakete, führt die Tests aus und bündelt
+`templates` und `static`. Folgende Varianten sind möglich:
+
+```powershell
+# Schnellerer Start und meist weniger Fehlalarme durch Virenscanner, aber ein Ordner statt einer Datei
+.\build-exe.ps1 -OneDir
+
+# Tests bei einem wiederholten lokalen Build auslassen
+.\build-exe.ps1 -SkipTests
+```
+
+Beim ersten Start kann die Windows-Firewall nach Netzwerkzugriff fragen. Für die
+Nutzung nur auf diesem PC genügt privater bzw. lokaler Zugriff; für den Zugriff
+vom Handy muss die EXE im privaten Heimnetz zugelassen sein. Die Konsole bleibt
+absichtlich sichtbar: Dort stehen Startfehler, und mit `Strg+C` wird lolbuddy
+sauber beendet. Die ID der von lolbuddy verwalteten Runenseite liegt dauerhaft
+unter `%LOCALAPPDATA%\lolbuddy\rune-page.json` und wird nicht in die EXE gepackt.
+Eine vorhandene ID aus der Python-Version übernimmt das Build-Skript einmalig.
+Wird die EXE ein zweites Mal geöffnet, erkennt sie die laufende Instanz, öffnet
+nur deren Browseroberfläche und beendet den zweiten Prozess wieder.
+
 Beim Start wird auch die WLAN-Adresse ausgegeben, beispielsweise
 `http://192.168.178.31:5000`. Am PC zeigt **Am Handy öffnen** einen lokal erzeugten
 QR-Code für diese Adresse. Das Handy muss sich im selben WLAN befinden; `--lan`
