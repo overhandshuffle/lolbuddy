@@ -1,5 +1,4 @@
 from pathlib import Path
-import time
 
 import psutil
 import requests
@@ -87,47 +86,9 @@ def connect_to_lcu():
     return session, base_url
 
 
-def wait_for_lcu():
-    """Wartet, bis der League Client läuft und seine API erreichbar ist."""
-
-    print("Warte auf den League Client. CTRL+C zum Beenden.", flush=True)
-
-    while True:
-        session = None
-
-        try:
-            session, base_url = connect_to_lcu()
-            response = session.get(
-                f"{base_url}/lol-gameflow/v1/gameflow-phase",
-                timeout=3,
-            )
-            response.raise_for_status()
-
-            print("League Client gefunden [OK]", flush=True)
-            print(f"LCU Port: {base_url.rsplit(':', 1)[-1]}", flush=True)
-            print("Mit League Client verbunden [OK]", flush=True)
-
-            return session, base_url
-
-        except (
-            FileNotFoundError,
-            OSError,
-            RuntimeError,
-            requests.exceptions.RequestException,
-        ):
-            if session is not None:
-                session.close()
-
-            time.sleep(START_RETRY_INTERVAL)
-
-
 # ============================================================
 # Championnamen laden
 # ============================================================
-
-
-def load_champions(session, base_url):
-    return {key: value["name"] for key, value in load_champion_details(session, base_url).items()}
 
 
 def load_champion_details(session, base_url):
@@ -335,13 +296,13 @@ def select_champion(champion_id, *, lock=False):
         if pickable is not None and champion_id not in pickable:
             raise ChampionSelectError("Dieser Champion ist im aktuellen Draft nicht verfügbar.")
         path = f"{base_url}/lol-champ-select/v1/session/actions/{int(action['id'])}"
-        response = session.patch(path, json={"championId": champion_id}, timeout=3)
-        if not response.ok:
-            raise ChampionSelectError("Der Champion konnte nicht ausgewählt werden.")
+        payload = {"championId": champion_id}
         if lock:
-            response = session.post(f"{path}/complete", json={"championId": champion_id}, timeout=3)
-            if not response.ok:
-                raise ChampionSelectError("Der Champion konnte nicht fest gewählt werden.")
+            payload["completed"] = True
+        response = session.patch(path, json=payload, timeout=3)
+        if not response.ok:
+            message = "fest gewählt" if lock else "ausgewählt"
+            raise ChampionSelectError(f"Der Champion konnte nicht {message} werden.")
     finally:
         if session is not None:
             session.close()
@@ -514,168 +475,3 @@ def get_team_state(champ_select, team_key, pick_actions):
         )
 
     return tuple(team_state)
-
-
-def print_team_overview(own_team, enemy_team, champions):
-    """Gibt den vollständigen, aktuell sichtbaren Draft aus."""
-
-    print()
-    print("========== CHAMP SELECT ==========")
-
-    for title, team in (("EIGENES TEAM", own_team), ("GEGNERISCHES TEAM", enemy_team)):
-        print(f"{title}:")
-
-        if not team:
-            print("  (noch keine Daten sichtbar)")
-            continue
-
-        for slot, (_, champion_id, status, position, is_local) in enumerate(team, 1):
-            champion_name = (
-                champions.get(champion_id, f"Champion {champion_id}")
-                if champion_id
-                else "-"
-            )
-            position_text = position or "POSITION ?"
-            local_text = " (DU)" if is_local else ""
-
-            print(
-                f"  {slot}. {position_text:<10} | {status:<6} | "
-                f"{champion_name}{local_text}"
-            )
-
-    print("==================================", flush=True)
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-
-def main():
-
-    print()
-    print("===================================")
-    print("          LOLBUDDY")
-    print("===================================")
-    print()
-
-    # --------------------------------------------------------
-    # LCU verbinden
-    # --------------------------------------------------------
-
-    session, base_url = wait_for_lcu()
-
-    # --------------------------------------------------------
-    # Championdaten laden
-    # --------------------------------------------------------
-
-    try:
-
-        champions = load_champions(session, base_url)
-
-        print(f"{len(champions)} Champions geladen [OK]", flush=True)
-
-    except Exception as error:
-
-        print("Championnamen konnten nicht " f"geladen werden: {error}", flush=True)
-
-        champions = {}
-
-    print()
-    print("Überwachung läuft. CTRL+C zum Beenden.")
-    print()
-
-    last_phase = None
-    last_draft_state = None
-
-    # --------------------------------------------------------
-    # Hauptschleife
-    # --------------------------------------------------------
-
-    while True:
-
-        try:
-
-            phase = get_phase(session, base_url)
-
-            # Phase hat sich geändert
-            if phase != last_phase:
-
-                print(f"Phase: {phase}", flush=True)
-
-                last_phase = phase
-
-                # Beim Verlassen von ChampSelect
-                # zurücksetzen
-                if phase != "ChampSelect":
-
-                    last_draft_state = None
-
-            # ------------------------------------------------
-            # Champ Select
-            # ------------------------------------------------
-
-            if phase == "ChampSelect":
-
-                champ_select = get_champ_select_session(session, base_url)
-
-                if champ_select is None:
-
-                    time.sleep(POLL_INTERVAL)
-
-                    continue
-
-                pick_actions = get_pick_actions(champ_select)
-                own_team = get_team_state(champ_select, "myTeam", pick_actions)
-                enemy_team = get_team_state(champ_select, "theirTeam", pick_actions)
-                draft_state = (own_team, enemy_team)
-
-                # Nur dann erneut ausgeben, wenn sich Picks, Status oder
-                # Positionen im Draft geändert haben.
-                if draft_state != last_draft_state:
-                    print_team_overview(own_team, enemy_team, champions)
-                    last_draft_state = draft_state
-
-        except requests.exceptions.ConnectionError:
-
-            print("Verbindung zum League Client verloren.", flush=True)
-
-            break
-
-        except requests.exceptions.Timeout:
-
-            print("LCU Timeout", flush=True)
-
-        except KeyboardInterrupt:
-
-            print()
-            print("LOLBUDDY beendet.")
-
-            break
-
-        except Exception as error:
-
-            print(f"Fehler: {type(error).__name__}: " f"{error}", flush=True)
-
-        time.sleep(POLL_INTERVAL)
-
-
-# ============================================================
-# Programmstart
-# ============================================================
-
-if __name__ == "__main__":
-
-    try:
-        main()
-
-    except KeyboardInterrupt:
-        print("\nLOLBUDDY beendet.")
-
-    except Exception as error:
-
-        print()
-        print("FATALER FEHLER:")
-        print(f"{type(error).__name__}: {error}")
-
-        input("\nEnter drücken zum Beenden...")

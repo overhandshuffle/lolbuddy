@@ -27,6 +27,10 @@ POSITIONS = {"TOP": "top", "JUNGLE": "jungle", "MID": "mid", "BOT": "adc", "SUPP
 LCU_POSITIONS = {"top": "TOP", "jungle": "JUNGLE", "mid": "MIDDLE", "adc": "BOTTOM",
                  "support": "UTILITY", "fill": "FILL"}
 KEEP_DRAFT_PHASES = {"GameStart", "InProgress", "Reconnect", "WaitingForStats", "PreEndOfGame", "EndOfGame"}
+LOBBY_ACTION_ERRORS = (
+    lolclient.LobbyActionError, FileNotFoundError, OSError, RuntimeError,
+    requests.RequestException,
+)
 
 
 def empty_state():
@@ -37,7 +41,7 @@ def empty_state():
             "show_position_selector": False, "local_positions": {"first": "", "second": ""},
             "available_champions": [], "pickable_champion_ids": [], "pick_action": None,
             "matchmaking": {"active": False, "elapsed_seconds": 0, "estimated_seconds": 0},
-            "logged_in": False, "demo": False}
+            "logged_in": False}
 
 
 class LiveState:
@@ -298,34 +302,34 @@ class BuildCache:
         self.pool.shutdown(wait=False, cancel_futures=True)
 
 
-DEMO_CHAMPIONS = {103: {"name": "Ahri", "alias": "Ahri"}, 64: {"name": "Lee Sin", "alias": "LeeSin"},
-                  222: {"name": "Jinx", "alias": "Jinx"}, 516: {"name": "Ornn", "alias": "Ornn"},
-                  412: {"name": "Thresh", "alias": "Thresh"}, 122: {"name": "Darius", "alias": "Darius"},
-                  76: {"name": "Nidalee", "alias": "Nidalee"}, 134: {"name": "Syndra", "alias": "Syndra"},
-                  145: {"name": "Kai'Sa", "alias": "Kaisa"}, 111: {"name": "Nautilus", "alias": "Nautilus"}}
+def build_parameters(data, default_tier):
+    """Validate the fields shared by build lookup and rune import requests."""
+    champion = str(data.get("champion", "")).strip()
+    position = data.get("position") or None
+    tier = data.get("tier") or default_tier
+    mode = data.get("mode") or "classic"
+    if mode == "aram":
+        position = None
+    if (
+        not champion
+        or len(champion) > 60
+        or position is not None
+        and (not isinstance(position, str) or position not in opgg.VALID_POSITIONS)
+        or not isinstance(tier, str)
+        or tier not in opgg.VALID_TIERS
+        or not isinstance(mode, str)
+        or mode not in opgg.VALID_MODES
+    ):
+        return None
+    return champion, position, tier, mode
 
 
-def demo_state(champion_id=103):
-    roles = ["top", "jungle", "mid", "adc", "support"]
-    own = [516, 64, 103, 222, 412]
-    slot = own.index(champion_id)
-    return {**empty_state(), "connected": True, "phase": "ChampSelect", "demo": True,
-            "queue": "Beispiel-Draft", "game_mode": "CLASSIC",
-            "own_team": [{**champion_data(c, DEMO_CHAMPIONS), "cell_id": i, "position": roles[i],
-                          "status": "HOVER" if i == slot else "LOCKED", "is_local": i == slot} for i, c in enumerate(own)],
-            "enemy_team": [{**champion_data(c, DEMO_CHAMPIONS), "cell_id": i + 5, "position": roles[i],
-                            "status": "LOCKED", "is_local": False} for i, c in enumerate([122, 76, 134, 145, 111])]}
-
-
-def create_app(state=None, builds=None, *, demo=False, lan_url=""):
+def create_app(state=None, builds=None, *, lan_url=""):
     app = Flask(__name__)
     state = state or LiveState()
     builds = builds or BuildCache()
     app.config.update(MAX_CONTENT_LENGTH=1024, LAN_URL=lan_url)
     app.extensions.update(live_state=state, build_cache=builds)
-    if demo:
-        state.publish(demo_state())
-
     @app.after_request
     def headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -370,8 +374,6 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
         current = state.read()
         if not request.is_json:
             return jsonify(error="Ungültige Anfrage."), 415
-        if demo or current.get("demo"):
-            return jsonify(error="Im Demo-Modus kann kein Match angenommen werden."), 409
         if not current.get("connected"):
             return jsonify(error="Der League-Client ist nicht verbunden."), 503
         if current.get("phase") != "ReadyCheck":
@@ -390,6 +392,13 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
         log.warning("League-Lobby-Aktion fehlgeschlagen: %s", error)
         return jsonify(error="Der League-Client konnte die Aktion nicht ausführen."), 502
 
+    def perform_lobby_action(action, *args):
+        try:
+            action(*args)
+            return jsonify(ok=True)
+        except LOBBY_ACTION_ERRORS as error:
+            return lobby_action_error(error)
+
     @app.post("/api/lobby/queue")
     def change_lobby_queue():
         data = request.get_json(silent=True)
@@ -402,12 +411,7 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
             return jsonify(error="Eine Lobby kann gerade nicht erstellt oder geändert werden."), 409
         if current.get("phase") == "Lobby" and not current.get("can_manage_lobby"):
             return jsonify(error="Nur der Gruppenleiter kann den Spielmodus in der Lobby ändern."), 409
-        try:
-            lolclient.change_lobby_queue(queue_id)
-            return jsonify(ok=True)
-        except (lolclient.LobbyActionError, FileNotFoundError, OSError, RuntimeError,
-                requests.RequestException) as error:
-            return lobby_action_error(error)
+        return perform_lobby_action(lolclient.change_lobby_queue, queue_id)
 
     @app.post("/api/lobby/positions")
     def change_positions():
@@ -419,12 +423,9 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
             return jsonify(error="Bitte zwei unterschiedliche Positionen auswählen."), 400
         if current.get("phase") != "Lobby" or not current.get("show_position_selector"):
             return jsonify(error="Für diesen Spielmodus können keine Positionen gewählt werden."), 409
-        try:
-            lolclient.set_position_preferences(LCU_POSITIONS[first], LCU_POSITIONS[second])
-            return jsonify(ok=True)
-        except (lolclient.LobbyActionError, FileNotFoundError, OSError, RuntimeError,
-                requests.RequestException) as error:
-            return lobby_action_error(error)
+        return perform_lobby_action(
+            lolclient.set_position_preferences, LCU_POSITIONS[first], LCU_POSITIONS[second]
+        )
 
     @app.post("/api/matchmaking/start")
     def start_matchmaking():
@@ -433,12 +434,7 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
             return jsonify(error="Ungültige Anfrage."), 415
         if current.get("phase") != "Lobby" or not current.get("can_manage_lobby"):
             return jsonify(error="Nur der Gruppenleiter kann die Spielsuche starten."), 409
-        try:
-            lolclient.start_matchmaking()
-            return jsonify(ok=True)
-        except (lolclient.LobbyActionError, FileNotFoundError, OSError, RuntimeError,
-                requests.RequestException) as error:
-            return lobby_action_error(error)
+        return perform_lobby_action(lolclient.start_matchmaking)
 
     @app.post("/api/matchmaking/stop")
     def stop_matchmaking():
@@ -447,12 +443,7 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
             return jsonify(error="Ungültige Anfrage."), 415
         if current.get("phase") != "Matchmaking" or not current.get("can_manage_lobby"):
             return jsonify(error="Die Spielsuche kann gerade nicht abgebrochen werden."), 409
-        try:
-            lolclient.stop_matchmaking()
-            return jsonify(ok=True)
-        except (lolclient.LobbyActionError, FileNotFoundError, OSError, RuntimeError,
-                requests.RequestException) as error:
-            return lobby_action_error(error)
+        return perform_lobby_action(lolclient.stop_matchmaking)
 
     @app.post("/api/champion-select")
     def champion_select():
@@ -480,20 +471,10 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
 
     @app.get("/api/build")
     def build():
-        champion = request.args.get("champion", "").strip()
-        position = request.args.get("position") or None
-        tier = request.args.get("tier") or builds.tier
-        mode = request.args.get("mode") or "classic"
-        if (
-            not champion
-            or len(champion) > 60
-            or position and position not in opgg.VALID_POSITIONS
-            or tier not in opgg.VALID_TIERS
-            or mode not in opgg.VALID_MODES
-        ):
+        parameters = build_parameters(request.args, builds.tier)
+        if parameters is None:
             return jsonify(error="Bitte einen gültigen Champion und eine gültige Rolle wählen."), 400
-        if mode == "aram":
-            position = None
+        champion, position, tier, mode = parameters
         try:
             info = builds.get(champion, position, tier=tier, mode=mode)
             if not (info.core_builds or info.rune_builds or info.spell_builds):
@@ -528,23 +509,15 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify(error="Ungültige Anfrage."), 400
-        champion = str(data.get("champion", "")).strip()
-        position = data.get("position") or None
-        tier = data.get("tier") or builds.tier
-        mode = data.get("mode") or "classic"
+        parameters = build_parameters(data, builds.tier)
         rune_index = data.get("rune_index", 0)
-        if mode == "aram":
-            position = None
         if (
-            not champion
-            or len(champion) > 60
-            or position and position not in opgg.VALID_POSITIONS
-            or tier not in opgg.VALID_TIERS
-            or mode not in opgg.VALID_MODES
+            parameters is None
             or type(rune_index) is not int
             or rune_index not in {0, 1}
         ):
             return jsonify(error="Champion, Rolle oder Runenseite ist ungültig."), 400
+        champion, position, tier, mode = parameters
         try:
             info = builds.get(champion, position, tier=tier, mode=mode)
             if rune_index >= len(info.rune_builds):
@@ -561,17 +534,6 @@ def create_app(state=None, builds=None, *, demo=False, lan_url=""):
             return jsonify(error=str(error), kind="rune_import_error"), 502
         except (FutureTimeout, ValueError, KeyError, TypeError):
             return jsonify(error="Die Runen konnten nicht importiert werden."), 502
-
-    @app.post("/api/demo/champion")
-    def demo_champion():
-        if not demo:
-            return jsonify(error="Demo-Modus ist nicht aktiv."), 404
-        data = request.get_json(silent=True) or {}
-        champion_id = data.get("champion_id") if isinstance(data, dict) else None
-        if champion_id not in (103, 64, 222):
-            return jsonify(error="Unbekannter Demo-Champion."), 400
-        state.publish(demo_state(champion_id))
-        return jsonify(ok=True)
 
     return app
 
@@ -594,7 +556,6 @@ def main():
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--region", default="euw")
     parser.add_argument("--tier", default="emerald_plus")
-    parser.add_argument("--demo", action="store_true", help="Beispiel-Draft mit echten OP.GG-Builds")
     # Kept as a no-op so existing shortcuts using --lan continue to work.
     parser.add_argument("--lan", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-browser", action="store_true", help="Browser nicht automatisch öffnen")
@@ -609,10 +570,9 @@ def main():
     print(f"LOLBUDDY läuft lokal auf {url}\nHandy im selben WLAN: {lan_url}", flush=True)
     print("Beenden mit Strg+C.", flush=True)
     state, builds = LiveState(), BuildCache(args.region, args.tier)
-    app = create_app(state, builds, demo=args.demo, lan_url=lan_url)
-    monitor = None if args.demo else LcuMonitor(state)
-    if monitor:
-        monitor.start()
+    app = create_app(state, builds, lan_url=lan_url)
+    monitor = LcuMonitor(state)
+    monitor.start()
     if not args.no_browser:
         opener = threading.Timer(1, webbrowser.open, args=(url,))
         opener.daemon = True
@@ -620,9 +580,8 @@ def main():
     try:
         app.run(host=host, port=args.port, threaded=True, use_reloader=False)
     finally:
-        if monitor:
-            monitor.stop.set()
-            monitor.thread.join(timeout=5)
+        monitor.stop.set()
+        monitor.thread.join(timeout=5)
         builds.close()
 
 

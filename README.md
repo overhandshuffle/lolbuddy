@@ -59,8 +59,9 @@ ist nicht mehr nötig.
   automatisch OP.GGs globale ARAM-Builds; Rolle und Rang-Tier sind dort deaktiviert.
 - Ein neuer eigener Champion-Hover aktiviert wieder die automatische Ansicht.
 - Während der Champion-Auswahl öffnet **Champion wählen** eine durchsuchbare Liste
-  deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt den Hover im
-  Client; **Fest wählen** schließt den Pick während deines Zuges ab.
+  deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt zunächst nur
+  den Hover im Client. Erst **Fest wählen** loggt den Champion während deines
+  Pick-Zugs verbindlich ein.
 - Alternative Core-Builds, Runenseiten und Spells lassen sich aufklappen.
 - Auf dem Handy sind **Teams & Bans** zunächst eingeklappt. **Items & Spells**
   und **Runen** haben auf schmalen Bildschirmen eigene Ansichten. Die Champion-Liste
@@ -79,25 +80,10 @@ und werden pro Champion, Rolle, Tier und Modus für 15 Minuten zwischengespeiche
 für zehn Sekunden zwischengespeichert. Schnelle Championwechsel können keinen
 alten Build über den aktuellen schreiben.
 
-## Vorschau ohne League
-
-```powershell
-python app.py --demo
-```
-
-Ein ausdrücklich markierter Beispiel-Draft mit Umschaltung zwischen Ahri,
-Lee Sin und Jinx. Die Build-Daten kommen auch hier live von OP.GG und benötigen
-Internet. Der Demo-Modus verändert den League-Client erst, wenn du ausdrücklich
-den Button zum Übernehmen der Runen anklickst.
-
 Weitere Optionen:
 
 ```powershell
 python app.py --region euw --tier emerald_plus --no-browser
-python opgg.py Ahri --position mid --json
-python runeclient.py Ahri --position mid
-python runeclient.py Ahri --mode aram
-python lolclient.py
 ```
 
 ## Daten und Grenzen
@@ -113,10 +99,10 @@ OP.GG wird aus den öffentlich ausgelieferten Seitendaten gelesen. Änderungen a
 deren Seitenformat können eine Anpassung des Parsers nötig machen. Bilder werden
 vom OP.GG-CDN geladen. Item- und Runennamen entsprechen der englischen Datenquelle.
 
-Die Website bindet ausschließlich an `127.0.0.1` und liest die lokale League-API.
-Zugangsdaten bleiben im Python-Prozess. Nur der ausdrücklich ausgelöste Runenimport
-und der Button zum Annehmen eines gefundenen Matches schreiben in den Client. Die Flask-Instanz ist für den
-lokalen Betrieb gedacht.
+Die Website ist auf dem PC und im lokalen WLAN erreichbar und liest die lokale
+League-API. Zugangsdaten bleiben im Python-Prozess. Schreibende Aktionen werden
+nur durch die entsprechenden Buttons ausgelöst. Die Flask-Instanz ist für den
+lokalen Betrieb in einem vertrauenswürdigen Netzwerk gedacht.
 
 ## Prüfen
 

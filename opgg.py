@@ -9,15 +9,10 @@ Beispiel::
 
     info = get_champion_info("Ahri", position="mid")
     print(info.win_rate)
-
-Direkter Aufruf::
-
-    python opgg.py Ahri --position mid --json
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import unicodedata
@@ -55,13 +50,6 @@ class BuildNotFoundError(OpggError):
 
 class OpggResponseError(OpggError):
     """OP.GG lieferte keine erwartungsgemaesse Antwort."""
-
-
-@dataclass(frozen=True)
-class Ability:
-    key: str
-    name: str
-    image_url: str
 
 
 @dataclass(frozen=True)
@@ -131,10 +119,6 @@ class ChampionInfo:
     pick_rate: float
     ban_rate: float
     image_url: str
-    abilities: tuple[Ability, ...]
-    passive_name: str | None
-    passive_description: str | None
-    passive_image_url: str | None
     rune_builds: tuple[RuneBuild, ...]
     starter_builds: tuple[ItemBuild, ...]
     boot_builds: tuple[ItemBuild, ...]
@@ -449,37 +433,6 @@ def _parse_champion_page(
         pick_rate = float(rate_match.group("pick"))
         ban_rate = float(rate_match.group("ban"))
 
-    abilities: list[Ability] = []
-    ability_pattern = re.compile(
-        r'\{\\"key\\":\\"([QWER])\\",'
-        r'\\"name\\":\\"([^\\"]+)\\",'
-        r'\\"image_url\\":\\"([^\\"]+)\\"'
-    )
-    for key, name, ability_image in ability_pattern.findall(html):
-        if key not in {ability.key for ability in abilities}:
-            abilities.append(
-                Ability(
-                    key=key,
-                    name=_decode_embedded_text(name) or name,
-                    image_url=ability_image,
-                )
-            )
-
-    passive_match = re.search(
-        r'\\"passive\\":\{\\"description\\":\\"(.*?)\\",'
-        r'\\"image_url\\":\\"([^\\"]+)\\"',
-        html,
-    )
-    passive_description = (
-        _decode_embedded_text(passive_match.group(1)) if passive_match else None
-    )
-    if passive_description:
-        passive_description = re.sub(r"<br\s*/?>", "\n", passive_description)
-
-    passive_name = _extract_optional(
-        r'\\"passive\\":\{\\"name\\":\\"([^\\"]+)\\"', html
-    )
-
     core_builds = _parse_item_builds(data, "core_items", limit=2)
     core_ids = {item.id for item in core_builds[0].items} if core_builds else set()
     later_builds = tuple(
@@ -497,10 +450,6 @@ def _parse_champion_page(
         pick_rate=pick_rate,
         ban_rate=ban_rate,
         image_url=image_url,
-        abilities=tuple(abilities),
-        passive_name=_decode_embedded_text(passive_name),
-        passive_description=passive_description,
-        passive_image_url=passive_match.group(2) if passive_match else None,
         rune_builds=_parse_rune_builds(data),
         starter_builds=_parse_item_builds(data, "starter_items", limit=1),
         boot_builds=_parse_item_builds(data, "boots", limit=1),
@@ -586,85 +535,3 @@ def get_champion_info(
         rank_tier=request_tier,
         game_mode=normalized_mode,
     )
-
-
-def _print_summary(info: ChampionInfo) -> None:
-    tier = str(info.tier) if info.tier is not None else "-"
-    print(f"{info.name} ({info.position.upper()}) - Patch {info.patch}")
-    print(f"Tier: {tier}")
-    print(f"Winrate:  {info.win_rate:.2f} %")
-    print(f"Pickrate: {info.pick_rate:.2f} %")
-    print(f"Banrate:  {info.ban_rate:.2f} %")
-    if info.abilities:
-        skills = ", ".join(
-            f"{ability.key}: {ability.name}" for ability in info.abilities
-        )
-        print(f"Skills: {skills}")
-
-    if info.rune_builds:
-        print("\nEmpfohlene Runen:")
-        for number, runes in enumerate(info.rune_builds, 1):
-            print(
-                f"  {number}. {runes.primary_style} + {runes.secondary_style} "
-                f"({runes.pick_rate:.2f} % Pick / {runes.win_rate:.2f} % Win)"
-            )
-            print(f"     Keystone: {runes.keystone}")
-            print(f"     Runen: {', '.join(runes.runes)}")
-            print(f"     Shards: {', '.join(runes.shards)}")
-
-    if info.spell_builds:
-        print("\nSummoner Spells:")
-        for build in info.spell_builds:
-            print("  " + " + ".join(spell.name for spell in build.spells))
-
-    build_groups = (
-        ("Start-Items", info.starter_builds),
-        ("Boots", info.boot_builds),
-        ("Core-Builds", info.core_builds),
-    )
-    print("\nEmpfohlene Builds:")
-    for heading, builds in build_groups:
-        for number, build in enumerate(builds, 1):
-            names = " -> ".join(item.name for item in build.items)
-            rates = []
-            if build.pick_rate is not None:
-                rates.append(f"{build.pick_rate:.2f} % Pick")
-            if build.win_rate is not None:
-                rates.append(f"{build.win_rate:.2f} % Win")
-            suffix = f" ({' / '.join(rates)})" if rates else ""
-            label = f"{heading} {number}" if len(builds) > 1 else heading
-            print(f"  {label}: {names}{suffix}")
-
-    print(f"Quelle: {info.source_url}")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Champion-Daten von OP.GG abrufen")
-    parser.add_argument("champion", help="Championname, z. B. Ahri oder Lee Sin")
-    parser.add_argument("--position", choices=sorted(VALID_POSITIONS))
-    parser.add_argument("--region", default="euw")
-    parser.add_argument("--tier", default="emerald_plus")
-    parser.add_argument("--mode", choices=sorted(VALID_MODES), default="classic")
-    parser.add_argument("--json", action="store_true", help="Als JSON ausgeben")
-    args = parser.parse_args()
-
-    try:
-        info = get_champion_info(
-            args.champion,
-            position=args.position,
-            region=args.region,
-            tier=args.tier,
-            mode=args.mode,
-        )
-    except (OpggError, ValueError) as error:
-        parser.exit(1, f"Fehler: {error}\n")
-
-    if args.json:
-        print(json.dumps(info.to_dict(), ensure_ascii=False, indent=2))
-    else:
-        _print_summary(info)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

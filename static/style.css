@@ -430,27 +430,26 @@ img {
   padding:28px 4% 20px;
 }
 
-.ready-check-view {
+.ready-check-view,
+.idle-view,
+.pregame-view {
   min-height:calc(100vh - 140px);
   display:grid;
   place-items:center;
   padding:30px 0 70px;
 }
 
-.idle-view {
-  min-height:calc(100vh - 140px);
-  display:grid;
-  place-items:center;
-  padding:30px 0 70px;
+.idle-card,
+.ready-check-card {
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--surface);
+  text-align:center;
 }
 
 .idle-card {
   width:min(100%,520px);
   padding:54px 46px;
-  border:1px solid var(--line);
-  border-radius:12px;
-  background:var(--surface);
-  text-align:center;
 }
 
 .idle-emblem {
@@ -505,13 +504,6 @@ img {
 
 .create-lobby .matchmaking-button {
   margin-top:12px;
-}
-
-.pregame-view {
-  min-height:calc(100vh - 140px);
-  display:grid;
-  place-items:center;
-  padding:30px 0 70px;
 }
 
 .pregame-card {
@@ -728,19 +720,24 @@ img {
   opacity:.55;
 }
 
-.matchmaking-button {
+.matchmaking-button,
+.accept-button {
   width:100%;
-  margin-top:18px;
-  padding:12px 16px;
-  border:1px solid #94a485;
   border-radius:5px;
   background:var(--accent);
   color:#182018;
-  font-size:12px;
   font-weight:650;
 }
 
-.matchmaking-button:hover:enabled {
+.matchmaking-button {
+  margin-top:18px;
+  padding:12px 16px;
+  border:1px solid #94a485;
+  font-size:12px;
+}
+
+.matchmaking-button:hover:enabled,
+.accept-button:hover:enabled {
   background:#c8d6b6;
 }
 
@@ -765,10 +762,6 @@ img {
 .ready-check-card {
   width:min(100%,480px);
   padding:54px 46px 46px;
-  border:1px solid var(--line);
-  border-radius:12px;
-  background:var(--surface);
-  text-align:center;
   box-shadow:0 24px 80px rgba(0,0,0,.22);
 }
 
@@ -813,19 +806,10 @@ img {
 }
 
 .accept-button {
-  width:100%;
   margin-top:28px;
   padding:13px 18px;
   border:1px solid #9cad8d;
-  border-radius:5px;
-  background:var(--accent);
-  color:#182018;
-  font-weight:650;
   transition:background .12s,opacity .12s;
-}
-
-.accept-button:hover:enabled {
-  background:#c8d6b6;
 }
 
 .accept-button:disabled {
@@ -1691,36 +1675,6 @@ h1 {
   margin-bottom:18px;
 }
 
-.demo-notice {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:15px;
-}
-
-.demo-notice strong {
-  margin-right:10px;
-  font-weight:600;
-}
-
-.demo-actions {
-  display:flex;
-  gap:7px;
-}
-
-.demo-actions button {
-  background:#35372b;
-  border:1px solid #565d45;
-  padding:5px 12px;
-  border-radius:4px;
-  font-size:11px;
-}
-
-.demo-actions button.active {
-  background:var(--accent);
-  color:#1c231b;
-}
-
 .footer {
   display:flex;
   justify-content:space-between;
@@ -2147,14 +2101,6 @@ details[open]>summary .disclosure-chevron {
   }
   .footer>span:last-child {
     display:none;
-  }
-  .demo-notice {
-    flex-direction:column;
-    align-items:flex-start;
-    font-size:11px;
-  }
-  .demo-actions {
-    flex-wrap:wrap;
   }
   .ready-check-view,.idle-view,.pregame-view {
     min-height:calc(100dvh - 110px);

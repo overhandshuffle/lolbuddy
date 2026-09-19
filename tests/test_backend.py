@@ -16,6 +16,11 @@ import lolclient
 import opgg
 import runeclient
 
+TEST_CHAMPIONS = {
+    103: {"name": "Ahri", "alias": "Ahri"},
+    222: {"name": "Jinx", "alias": "Jinx"},
+}
+
 
 def flight(records, split=False):
     text = "\n".join(f"{key}:{json.dumps(value, separators=(',', ':'))}" for key, value in records.items())
@@ -200,7 +205,6 @@ class ClientTests(unittest.TestCase):
     def test_select_champion_uses_local_pick_action_and_completes_lock(self):
         session = Mock()
         session.patch.return_value.ok = True
-        session.post.return_value.ok = True
         selection = {
             "localPlayerCellId": 3,
             "actions": [[
@@ -215,13 +219,30 @@ class ClientTests(unittest.TestCase):
             lolclient.select_champion(103, lock=True)
         session.patch.assert_called_once_with(
             "https://127.0.0.1:1234/lol-champ-select/v1/session/actions/8",
-            json={"championId": 103}, timeout=3,
+            json={"championId": 103, "completed": True}, timeout=3,
         )
-        session.post.assert_called_once_with(
-            "https://127.0.0.1:1234/lol-champ-select/v1/session/actions/8/complete",
-            json={"championId": 103}, timeout=3,
-        )
+        session.post.assert_not_called()
         session.close.assert_called_once_with()
+
+    def test_select_champion_hover_does_not_complete_pick(self):
+        session = Mock()
+        session.patch.return_value.ok = True
+        selection = {
+            "localPlayerCellId": 3,
+            "actions": [[
+                {"id": 8, "actorCellId": 3, "type": "pick", "isInProgress": False, "completed": False},
+            ]],
+        }
+        with patch.object(lolclient, "connect_to_lcu", return_value=(session, "https://127.0.0.1:1234")), \
+             patch.object(lolclient, "get_phase", return_value="ChampSelect"), \
+             patch.object(lolclient, "get_champ_select_session", return_value=selection), \
+             patch.object(lolclient, "get_pickable_champion_ids", return_value={103}):
+            lolclient.select_champion(103)
+        session.patch.assert_called_once_with(
+            "https://127.0.0.1:1234/lol-champ-select/v1/session/actions/8",
+            json={"championId": 103}, timeout=3,
+        )
+        session.post.assert_not_called()
 
     def test_accept_ready_check_posts_to_lcu_and_closes_session(self):
         session = Mock()
@@ -272,7 +293,7 @@ class ClientTests(unittest.TestCase):
     def test_snapshot_filters_empty_bans_and_normalizes_role(self):
         selection = self.selection({"championId": 103, "assignedPosition": "bottom"})
         selection.update(bans={"myTeamBans": [0, -1, 222]}, timer={"adjustedTimeLeftInPhase": 14500})
-        state = app.draft_state(selection, app.DEMO_CHAMPIONS)
+        state = app.draft_state(selection, TEST_CHAMPIONS)
         self.assertEqual(state["own_team"][0]["position"], "adc")
         self.assertEqual(state["timer"]["seconds"], 14)
         self.assertEqual([c["champion_id"] for c in state["bans"]["own"]], [222])
@@ -281,7 +302,7 @@ class ClientTests(unittest.TestCase):
         lobby = {"localMember": {"puuid": "local"}, "gameConfig": {"isCustom": True, "gameMode": "ARAM",
                  "customTeam100": [{"isBot": True, "botChampionId": 103}],
                  "customTeam200": [{"puuid": "local", "firstPositionPreference": "TOP"}]}}
-        state = app.lobby_state(lobby, app.DEMO_CHAMPIONS)
+        state = app.lobby_state(lobby, TEST_CHAMPIONS)
         self.assertTrue(state["own_team"][0]["is_local"])
         self.assertEqual(state["enemy_team"][0]["champion_id"], 103)
         self.assertEqual(state["game_mode"], "ARAM")
@@ -387,10 +408,10 @@ class CacheAndWebTests(unittest.TestCase):
         finally:
             cache.close()
 
-    def test_http_validation_demo_and_error_response(self):
+    def test_http_validation_and_error_response(self):
         builds = Mock(region="euw", tier="emerald_plus")
         builds.get.side_effect = opgg.OpggError("private internal details")
-        client = app.create_app(builds=builds, demo=True).test_client()
+        client = app.create_app(builds=builds).test_client()
         self.assertEqual(client.get("/").status_code, 200)
         self.assertEqual(client.get("/api/build?champion=Ahri&position=invalid").status_code, 400)
         self.assertEqual(client.get("/api/build?champion=Ahri&tier=wood").status_code, 400)
@@ -399,11 +420,7 @@ class CacheAndWebTests(unittest.TestCase):
         response = client.get("/api/build?champion=Ahri")
         self.assertEqual(response.status_code, 502)
         self.assertNotIn("private", response.get_data(as_text=True))
-        self.assertEqual(client.post("/api/demo/champion", json={"champion_id": 222}).status_code, 200)
-        self.assertEqual(client.get("/api/state").json["own_team"][3]["is_local"], True)
-        self.assertEqual(client.post("/api/demo/champion", json=[]).status_code, 400)
-        live_client = app.create_app(builds=builds).test_client()
-        self.assertEqual(live_client.post("/api/demo/champion", json={"champion_id": 222}).status_code, 404)
+        self.assertEqual(client.post("/api/runes", json={"champion": "Ahri", "tier": {"bad": True}}).status_code, 400)
 
     def test_ready_check_can_only_be_accepted_in_ready_check_phase(self):
         builds = Mock(region="euw", tier="emerald_plus")
@@ -597,7 +614,7 @@ class CacheAndWebTests(unittest.TestCase):
         state = app.LiveState()
         events = state.events()
         self.assertIn('"phase": "Offline"', next(events))
-        state.publish(app.demo_state())
+        state.publish({**app.empty_state(), "connected": True, "phase": "ChampSelect"})
         self.assertIn('"phase": "ChampSelect"', next(events))
         events.close()
 

@@ -1,16 +1,11 @@
 """OP.GG-Runen als verwaltete Runenseite in den League-Client importieren.
 
-Direkter Aufruf::
-
-    python runeclient.py Ahri --position mid
-
 Das Modul merkt sich die ID genau einer von ihm erstellten Seite. Andere
 Runenseiten werden weder verändert noch gelöscht.
 """
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -206,41 +201,3 @@ def import_rune_page(
     finally:
         if owns_connection:
             session.close()
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="OP.GG-Runen in den League-Client importieren"
-    )
-    parser.add_argument("champion", help="Championname, z. B. Ahri")
-    parser.add_argument("--position", choices=sorted(opgg.VALID_POSITIONS))
-    parser.add_argument("--alternative", action="store_true", help="Zweite Runenseite")
-    parser.add_argument("--region", default="euw")
-    parser.add_argument("--tier", default="emerald_plus")
-    parser.add_argument("--mode", choices=sorted(opgg.VALID_MODES), default="classic")
-    args = parser.parse_args()
-
-    try:
-        info = opgg.get_champion_info(
-            args.champion,
-            position=args.position,
-            region=args.region,
-            tier=args.tier,
-            mode=args.mode,
-        )
-        index = 1 if args.alternative else 0
-        if index >= len(info.rune_builds):
-            raise RuneImportError("OP.GG bietet diese Runenseite nicht an.")
-        result = import_rune_page(
-            info.rune_builds[index], info.name, info.position
-        )
-    except (opgg.OpggError, RuneImportError, ValueError) as error:
-        parser.exit(1, f"Fehler: {error}\n")
-
-    action = "erstellt" if result.created else "aktualisiert"
-    print(f"Runenseite '{result.name}' wurde {action} und aktiviert.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

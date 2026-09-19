@@ -33,7 +33,6 @@ let selectedChampionId = 0;
 let championPickPending = false;
 let pickerSignature = "";
 let buildSection = "items";
-const cache = new Map();
 
 const compactLayout = window.matchMedia("(max-width: 760px)");
 const stackedBuild = window.matchMedia("(max-width: 1100px)");
@@ -242,7 +241,7 @@ function pickerChampions() {
 function renderChampionPicker() {
   const champions = pickerChampions();
   $("#champion-result-count").textContent = `${champions.length} ${champions.length === 1 ? "Champion" : "Champions"}`;
-  $("#pick-turn-label").textContent = state?.pick_action?.active ? "Du bist am Zug" : "Pick vormerken";
+  $("#pick-turn-label").textContent = state?.pick_action?.active ? "Champion auswählen" : "Pick vormerken";
   const signature = JSON.stringify(champions);
   const grid = $("#champion-grid");
   if (signature !== pickerSignature) {
@@ -363,16 +362,16 @@ function applyState(value) {
   state = value;
   $("#server-notice").hidden = true;
   $("#connection").classList.toggle("online", state.connected);
-  $("#connection-text").textContent = state.demo ? "Demo aktiv" : state.connected ? "Mit League verbunden" : "Warte auf League";
+  $("#connection-text").textContent = state.connected ? "Mit League verbunden" : "Warte auf League";
   const phase = phases[state.phase] || [state.phase || "Deine Lobby", "Der aktuelle Stand aus deinem League-Client."];
   $("#phase-title").textContent = phase[0];
   $("#phase-description").textContent = phase[1];
   $("#queue-label").textContent = state.queue;
   $("#champion-picker-button").hidden = state.phase !== "ChampSelect" || !state.pick_action;
-  const isReadyCheck = state.phase === "ReadyCheck" && !state.demo;
+  const isReadyCheck = state.phase === "ReadyCheck";
   const clientUnavailable = !state.connected || state.logged_in === false;
-  const isIdle = !state.demo && (clientUnavailable || state.phase === "None");
-  const isPregame = !state.demo && ["Lobby", "Matchmaking"].includes(state.phase);
+  const isIdle = clientUnavailable || state.phase === "None";
+  const isPregame = ["Lobby", "Matchmaking"].includes(state.phase);
   if (isIdle) {
     const offline = clientUnavailable;
     $("#idle-eyebrow").textContent = offline ? "LEAGUE OF LEGENDS" : "BEREIT WENN DU ES BIST";
@@ -405,13 +404,11 @@ function applyState(value) {
     }
   }
   $("#mode-label").textContent = currentMode() === "aram" ? "ARAM" : "Kluft der Beschwörer";
-  $("#draft-label").textContent = state.demo ? "DEMO" : state.connected ? "LIVE" : "OFFLINE";
+  $("#draft-label").textContent = state.connected ? "LIVE" : "OFFLINE";
   const timer = $("#draft-timer");
   timer.hidden = !state.timer?.seconds;
   timer.textContent = state.timer ? `${state.timer.seconds}s` : "";
-  $("#demo-notice").hidden = !state.demo;
   const local = localPlayer();
-  document.querySelectorAll("[data-demo]").forEach(button => button.classList.toggle("active", Number(button.dataset.demo) === local?.champion_id));
   const signature = `${local?.champion_id || 0}:${local?.position || ""}:${local?.cell_id ?? ""}`;
   if (signature !== localSignature) {
     localSignature = signature;
@@ -509,29 +506,17 @@ function emptyBuild() {
 
 async function loadBuild(player, position, tier, mode, key, version) {
   try {
-    let entry = cache.get(key);
-    if (!entry || Date.now() - entry.created > 900000) {
-      const query = new URLSearchParams({champion:player.alias || player.name});
-      if (position) query.set("position", position);
-      query.set("tier", tier);
-      query.set("mode", mode);
-      const promise = fetch(`/api/build?${query}`, {signal:AbortSignal.timeout(30000)}).then(async response => {
-        const data = await response.json();
-        if (!response.ok) {
-          const error = new Error(data.error || "OP.GG ist gerade nicht erreichbar.");
-          error.kind = data.kind;
-          throw error;
-        }
-        return data;
-      });
-      entry = {promise, created:Date.now()};
-      cache.set(key, entry);
-      if (cache.size > 64) cache.delete(cache.keys().next().value);
+    const query = new URLSearchParams({champion:player.alias || player.name, tier, mode});
+    if (position) query.set("position", position);
+    const response = await fetch(`/api/build?${query}`, {signal:AbortSignal.timeout(30000)});
+    const info = await response.json();
+    if (!response.ok) {
+      const error = new Error(info.error || "OP.GG ist gerade nicht erreichbar.");
+      error.kind = info.kind;
+      throw error;
     }
-    const info = await entry.promise;
     if (version === requestVersion) renderBuild(player, info);
   } catch (error) {
-    cache.delete(key);
     if (version !== requestVersion) return;
     const message = ["TimeoutError", "AbortError"].includes(error.name) ? "OP.GG antwortet gerade zu langsam. Bitte versuche es gleich noch einmal." : error.message;
     const title = error.kind === "no_role_data" ? "Keine Daten für diese Rolle" : "Build gerade nicht verfügbar";
@@ -663,15 +648,6 @@ $("#build").addEventListener("click", async event => {
     status.classList.add("error");
   }
 });
-document.querySelectorAll("[data-demo]").forEach(button => button.addEventListener("click", async () => {
-  try {
-    const response = await fetch("/api/demo/champion", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({champion_id:Number(button.dataset.demo)})});
-    if (!response.ok) throw new Error("Demo nicht verfügbar");
-  } catch (_) {
-    $("#server-notice").hidden = false;
-  }
-}));
-
 const events = new EventSource("/api/events");
 events.onmessage = event => applyState(JSON.parse(event.data));
 events.onerror = () => {
