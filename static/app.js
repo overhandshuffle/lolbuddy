@@ -34,8 +34,8 @@ let championPickPending = false;
 let pickerSignature = "";
 let buildSection = "items";
 
-const compactLayout = window.matchMedia("(max-width: 760px)");
-const stackedBuild = window.matchMedia("(max-width: 1100px)");
+const compactLayout = window.matchMedia("(max-width: 820px)");
+const stackedBuild = window.matchMedia("(max-width: 1180px)");
 $("#draft-details").open = !compactLayout.matches;
 compactLayout.addEventListener("change", event => { $("#draft-details").open = !event.matches; });
 

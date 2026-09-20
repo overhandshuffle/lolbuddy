@@ -11,10 +11,16 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="lolbuddy Startseite"><span class="brand-mark" aria-hidden="true">lb</span>lolbuddy<span class="brand-divider"></span><span class="brand-sub">Lobby &amp; Builds</span></a>
-    <div class="topbar-actions">
-      {% if lan_url %}<button class="phone-button" id="phone-button" type="button">Am Handy öffnen</button>{% endif %}
-      <span class="connection" id="connection" role="status"><span class="status-dot"></span><span id="connection-text">Verbindung wird hergestellt</span></span>
+    <div class="topbar-inner">
+      <a class="brand" href="/" aria-label="lolbuddy Startseite">
+        <span class="brand-mark" aria-hidden="true">L</span>
+        <span class="brand-name">lolbuddy</span>
+        <span class="brand-sub">Client Companion</span>
+      </a>
+      <div class="topbar-actions">
+        {% if lan_url %}<button class="phone-button" id="phone-button" type="button"><span class="phone-label-wide">Mit Handy verbinden</span><span class="phone-label-short">Handy</span></button>{% endif %}
+        <span class="connection" id="connection" role="status"><span class="status-dot"></span><span id="connection-text">Verbindung wird hergestellt</span></span>
+      </div>
     </div>
   </header>
 
@@ -49,7 +55,7 @@
     <section class="ready-check-view" id="ready-check-view" aria-labelledby="ready-check-title" hidden>
       <div class="ready-check-card">
         <div class="ready-emblem" aria-hidden="true"><span>✓</span></div>
-        <p class="eyebrow">MATCHMAKING</p>
+        <p class="eyebrow">BEREIT ZUM SPIELEN</p>
         <h1 id="ready-check-title">Spiel gefunden</h1>
         <p class="ready-check-copy">Dein Match ist bereit. Nimm es hier an, um direkt zur Champion-Auswahl zu wechseln.</p>
         <p class="ready-check-queue" id="ready-check-queue"></p>
@@ -106,14 +112,14 @@
 
     <div id="dashboard-view">
     <div class="page-heading">
-      <div><p class="eyebrow">LEAGUE OF LEGENDS</p><h1 id="phase-title">Deine Lobby</h1><p class="page-subtitle" id="phase-description">Der aktuelle Stand, direkt aus deinem Client.</p></div>
+      <div><p class="eyebrow">LIVE AUS DEINEM CLIENT</p><h1 id="phase-title">Deine Lobby</h1><p class="page-subtitle" id="phase-description">Der aktuelle Stand, direkt aus deinem Client.</p></div>
       <div class="phase-meta"><span id="queue-label"></span><span id="draft-timer" class="draft-timer" hidden></span></div>
     </div>
 
     <div class="workspace">
       <aside class="draft" aria-label="Lobby und Champion-Auswahl">
         <details class="draft-details" id="draft-details" open>
-          <summary class="draft-heading"><span>Teams &amp; Bans</span><span id="draft-label">LIVE</span><span class="disclosure-chevron" aria-hidden="true"></span></summary>
+          <summary class="draft-heading"><span>Draft</span><span id="draft-label">LIVE</span><span class="disclosure-chevron" aria-hidden="true"></span></summary>
           <div id="teams"></div>
           <p class="draft-hint">Champion antippen oder anklicken, um seinen Build zu öffnen.</p>
         </details>
