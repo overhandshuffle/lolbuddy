@@ -2233,6 +2233,46 @@ select:not([multiple]) {
   color:var(--danger);
 }
 
+.item-set-picker {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin-top:13px;
+  padding-top:18px;
+  border-top:1px solid var(--line);
+}
+
+.item-set-picker>div {
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  min-width:0;
+}
+
+.item-set-picker strong {
+  color:var(--text-soft);
+  font-size:11px;
+  font-weight:600;
+}
+
+.item-set-picker small {
+  color:var(--muted);
+  font-size:8px;
+}
+
+.item-set-status {
+  min-height:15px;
+  margin-top:7px;
+  color:var(--accent);
+  font-size:9px;
+  text-align:right;
+}
+
+.item-set-status.error {
+  color:var(--danger);
+}
+
 .matchups {
   padding-bottom:30px;
   border-bottom:1px solid var(--line);
@@ -2524,6 +2564,20 @@ select:not([multiple]) {
   .spell-picker-fields .pick-action-button {
     grid-column:1/-1;
     min-height:46px;
+  }
+
+  .item-set-picker {
+    align-items:stretch;
+    flex-direction:column;
+    gap:12px;
+  }
+
+  .item-set-picker .pick-action-button {
+    width:100%;
+  }
+
+  .item-set-status {
+    text-align:left;
   }
 
   .spell-picker-fields select {

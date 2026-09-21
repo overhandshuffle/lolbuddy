@@ -88,6 +88,9 @@ ist nicht mehr nötig.
 - Neben der empfohlenen Hauptrune übernimmt **Runen einspielen** die vollständige
   Runenseite in den League-Client. Zwei Summoner Spells lassen sich ebenfalls direkt
   auswählen und gemeinsam in den Client übertragen.
+- **Itemsets laden** erstellt aus demselben OP.GG-Build ein Gegenstandsset für den
+  aktuellen Champion. Vorhandene championbezogene Sets werden ersetzt; globale Sets
+  und Zuordnungen für andere Champions bleiben erhalten.
 - Der vollständige Build wird erst nach dem Spielstart angezeigt. **Build anpassen**
   öffnet dann die Auswahl für Rolle und Tier; weitere Statistiken und situative
   Items lassen sich bei Bedarf aufklappen.

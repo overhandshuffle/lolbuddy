@@ -31,6 +31,8 @@ let championPickLocking = false;
 let pickerSignature = "";
 let draftBuildKey = "";
 let draftBuildVersion = 0;
+let draftBuildInfo = null;
+let itemSetPending = false;
 let draftTimerDeadline = 0;
 let draftTimerPhase = "";
 const buildPhases = new Set(["GameStart", "InProgress", "Reconnect", "WaitingForStats", "PreEndOfGame", "EndOfGame"]);
@@ -458,8 +460,67 @@ $("#first-spell").addEventListener("change", () => { $("#spell-picker-status").t
 $("#second-spell").addEventListener("change", () => { $("#spell-picker-status").textContent = ""; });
 $("#apply-spells").addEventListener("click", applySummonerSpells);
 
+function resetDraftItemSet() {
+  draftBuildInfo = null;
+  const button = $("#import-item-set");
+  button.disabled = true;
+  if (!itemSetPending) button.textContent = "Itemsets laden";
+  $("#item-set-status").textContent = "";
+  $("#item-set-status").classList.remove("error");
+}
+
+async function importItemSet() {
+  if (itemSetPending || !draftBuildInfo) return;
+  const info = draftBuildInfo;
+  const button = $("#import-item-set");
+  const status = $("#item-set-status");
+  let imported = false;
+  itemSetPending = true;
+  button.disabled = true;
+  button.textContent = "Wird übertragen …";
+  status.textContent = "";
+  status.classList.remove("error");
+  try {
+    const response = await fetch("/api/item-set", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        champion:info.champion,
+        position:info.request_position || null,
+        tier:info.request_tier || info.rank_tier,
+        mode:info.request_mode || info.game_mode,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Itemset-Import fehlgeschlagen.");
+    imported = true;
+    if (draftBuildInfo === info && state?.phase === "ChampSelect") {
+      button.textContent = "✓ Im Client gespeichert";
+      status.textContent = data.replaced
+        ? `${data.replaced} vorhandene ${data.replaced === 1 ? "Set wurde" : "Sets wurden"} ersetzt.`
+        : data.name;
+    }
+  } catch (error) {
+    if (draftBuildInfo === info && state?.phase === "ChampSelect") {
+      button.textContent = "Itemsets laden";
+      status.textContent = error.message;
+      status.classList.add("error");
+    }
+  } finally {
+    itemSetPending = false;
+    if (draftBuildInfo === info && state?.phase === "ChampSelect") {
+      button.disabled = imported;
+    } else if (draftBuildInfo && state?.phase === "ChampSelect") {
+      button.disabled = false;
+      button.textContent = "Itemsets laden";
+    }
+  }
+}
+
+$("#import-item-set").addEventListener("click", importItemSet);
+
 function runeImportButton(info, index = 0, label = "Runen einspielen") {
-  return `<button class="button pick-action-button import-runes" data-champion="${esc(info.champion)}" data-position="${esc(info.position)}" data-tier="${esc(info.rank_tier)}" data-mode="${esc(info.game_mode)}" data-rune-index="${index}">${label}</button>`;
+  return `<button class="button pick-action-button import-runes" data-champion="${esc(info.champion)}" data-position="${esc(info.request_position ?? info.position)}" data-tier="${esc(info.request_tier || info.rank_tier)}" data-mode="${esc(info.request_mode || info.game_mode)}" data-rune-index="${index}">${label}</button>`;
 }
 
 function keystoneQuick(build, info, context = "game") {
@@ -481,7 +542,13 @@ async function loadDraftRune(player, position, tier, mode, key, version) {
     const info = await response.json();
     if (!response.ok) throw new Error(info.error || "Runenempfehlung nicht verfügbar.");
     if (version === draftBuildVersion && state?.phase === "ChampSelect") {
+      info.request_position = position || "";
+      info.request_tier = tier;
+      info.request_mode = mode;
+      draftBuildInfo = info;
       $("#pick-rune-content").innerHTML = keystoneQuick(info.rune_builds?.[0], info, "draft");
+      $("#import-item-set").disabled = itemSetPending;
+      $("#import-item-set").textContent = "Itemsets laden";
     }
   } catch (error) {
     if (version !== draftBuildVersion) return;
@@ -496,6 +563,7 @@ function updateDraftSetup() {
   if (!player?.champion_id) {
     draftBuildKey = "";
     draftBuildVersion++;
+    resetDraftItemSet();
     $("#pick-rune-content").innerHTML = '<p class="pick-placeholder">Wähle oder hover zuerst deinen Champion.</p>';
     return;
   }
@@ -506,6 +574,7 @@ function updateDraftSetup() {
   if (key === draftBuildKey) return;
   draftBuildKey = key;
   const version = ++draftBuildVersion;
+  resetDraftItemSet();
   $("#pick-rune-content").innerHTML = '<div class="pick-rune-loading"><span class="loader" aria-hidden="true"></span><span>Hauptrune wird geladen …</span></div>';
   loadDraftRune(player, position, tier, mode, key, version);
 }
@@ -571,6 +640,7 @@ function applyState(value) {
   if (!isChampSelect && draftBuildKey) {
     draftBuildKey = "";
     draftBuildVersion++;
+    resetDraftItemSet();
   }
   if (isChampSelect) {
     renderOwnPick();

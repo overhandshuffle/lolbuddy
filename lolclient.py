@@ -1,4 +1,6 @@
 from pathlib import Path
+import time
+from uuid import uuid4
 
 import psutil
 import requests
@@ -11,6 +13,7 @@ import urllib3
 POLL_INTERVAL = 0.25  # Sekunden
 START_RETRY_INTERVAL = 2.0  # Sekunden
 SUMMONER_SPELL_IDS = (4, 14, 12, 6, 7, 21, 3, 1, 11, 13, 32)
+MAX_ITEM_SETS = 100
 
 
 # League benutzt lokal ein selbstsigniertes Zertifikat.
@@ -356,6 +359,104 @@ def set_summoner_spells(first_spell_id, second_spell_id):
         )
         if not response.ok:
             raise SummonerSpellError("Der League-Client hat diese Spell-Kombination abgelehnt.")
+    finally:
+        if session is not None:
+            session.close()
+
+
+class ItemSetError(RuntimeError):
+    """Ein OP.GG-Itemset konnte nicht in den League-Client geschrieben werden."""
+
+
+def import_item_set(champion_id, title, blocks, *, map_ids=None):
+    """Ersetzt Itemsets des Champions und lässt globale bzw. fremde Sets bestehen."""
+
+    champion_id = int(champion_id)
+    normalized_blocks = []
+    for block in blocks:
+        items = [
+            {"id": str(int(item["id"])), "count": max(1, int(item.get("count", 1)))}
+            for item in block.get("items", [])
+            if int(item.get("id", 0) or 0) > 0
+        ]
+        if items:
+            normalized_blocks.append({
+                "type": str(block.get("type") or "Items")[:60],
+                "items": items,
+                "hideIfSummonerSpell": "",
+                "showIfSummonerSpell": "",
+            })
+    if champion_id <= 0 or not normalized_blocks:
+        raise ItemSetError("Für diesen Champion sind keine Item-Daten verfügbar.")
+
+    session = None
+    try:
+        session, base_url = connect_to_lcu()
+        summoner_response = session.get(
+            f"{base_url}/lol-summoner/v1/current-summoner", timeout=3
+        )
+        if not summoner_response.ok:
+            raise ItemSetError("Das League-Konto konnte nicht gelesen werden.")
+        summoner = summoner_response.json()
+        account_id = int(summoner.get("accountId") or summoner.get("summonerId") or 0)
+        if account_id <= 0:
+            raise ItemSetError("Das League-Konto konnte nicht gelesen werden.")
+
+        endpoint = f"{base_url}/lol-item-sets/v1/item-sets/{account_id}/sets"
+        sets_response = session.get(endpoint, timeout=3)
+        if not sets_response.ok:
+            raise ItemSetError("Die vorhandenen Itemsets konnten nicht gelesen werden.")
+        current = sets_response.json()
+        item_sets = current.get("itemSets")
+        if not isinstance(item_sets, list):
+            raise ItemSetError("Der League-Client hat ungültige Itemset-Daten geliefert.")
+
+        retained = []
+        replaced = 0
+        for item_set in item_sets:
+            associated = item_set.get("associatedChampions") or []
+            associated_ids = []
+            for item in associated:
+                try:
+                    associated_ids.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            if champion_id not in associated_ids:
+                retained.append(item_set)
+                continue
+            replaced += 1
+            remaining = [item for item in associated_ids if item != champion_id]
+            if remaining:
+                retained.append({**item_set, "associatedChampions": remaining})
+
+        if len(retained) >= MAX_ITEM_SETS:
+            raise ItemSetError(
+                "Dein League-Konto hat bereits die maximale Anzahl an Itemsets erreicht."
+            )
+
+        clean_title = str(title).strip()[:60] or "lolbuddy Build"
+        retained.append({
+            "uid": str(uuid4()),
+            "title": clean_title,
+            "type": "custom",
+            "map": "any",
+            "mode": "any",
+            "sortrank": 0,
+            "startedFrom": "blank",
+            "associatedChampions": [champion_id],
+            "associatedMaps": [int(map_id) for map_id in (map_ids or [])],
+            "blocks": normalized_blocks,
+            "preferredItemSlots": [],
+        })
+        payload = {
+            "accountId": account_id,
+            "itemSets": retained,
+            "timestamp": int(time.time() * 1000),
+        }
+        update_response = session.put(endpoint, json=payload, timeout=5)
+        if not update_response.ok:
+            raise ItemSetError("Der League-Client hat das Itemset abgelehnt.")
+        return {"name": clean_title, "replaced": replaced}
     finally:
         if session is not None:
             session.close()
