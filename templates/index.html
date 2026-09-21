@@ -43,10 +43,6 @@
     <label class="champion-search"><span class="sr-only">Champion suchen</span><input id="champion-search" type="search" placeholder="Champion suchen …" autocomplete="off" spellcheck="false"></label>
     <div class="champion-picker-meta"><span id="champion-result-count"></span><span id="pick-turn-label"></span></div>
     <div class="champion-grid" id="champion-grid"></div>
-    <div class="champion-dialog-footer">
-      <div><strong id="selected-champion-name">Noch keinen Champion gewählt</strong><span id="champion-pick-status" role="status"></span></div>
-      <button class="matchmaking-button" id="lock-champion" type="button" disabled>Fest wählen</button>
-    </div>
   </dialog>
 
   <main class="page">
@@ -126,7 +122,11 @@
 
         <div class="own-pick-bar">
           <div class="own-pick" id="own-pick"></div>
-          <button class="champion-picker-button" id="champion-picker-button" type="button">Champion wählen</button>
+          <div class="own-pick-actions">
+            <button class="champion-picker-button" id="champion-picker-button" type="button">Champion wählen</button>
+            <button class="button" id="lock-champion" type="button" hidden>Fest wählen</button>
+            <span class="own-pick-status" id="own-pick-status" role="status"></span>
+          </div>
         </div>
 
         <div class="pick-setup">
@@ -140,7 +140,7 @@
             <div class="spell-picker-fields">
               <label>Erster Spell<select id="first-spell" aria-label="Erster Summoner Spell"></select></label>
               <label>Zweiter Spell<select id="second-spell" aria-label="Zweiter Summoner Spell"></select></label>
-              <button class="secondary-button" id="apply-spells" type="button">Im Client setzen</button>
+              <button class="button pick-action-button" id="apply-spells" type="button">Im Client setzen</button>
             </div>
             <p class="spell-picker-status" id="spell-picker-status" role="status"></p>
           </section>

@@ -100,9 +100,9 @@ ist nicht mehr nötig.
 - **Modus**: lolbuddy erkennt ARAM über den League-Client. In ARAM verwendet es
   automatisch OP.GGs globale ARAM-Builds; Rolle und Rang-Tier sind dort deaktiviert.
 - Während der Champion-Auswahl öffnet **Champion wählen** eine durchsuchbare Liste
-  deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt zunächst nur
-  den Hover im Client. Erst **Fest wählen** loggt den Champion während deines
-  Pick-Zugs verbindlich ein.
+  deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt sofort den Hover
+  im Client und schließt die Liste. Anschließend loggt **Fest wählen** neben
+  **Champion ändern** den Champion während deines Pick-Zugs verbindlich ein.
 - Alternative Core-Builds und Spells lassen sich nach dem Spielstart aufklappen.
 - Auf dem Handy bleibt die Pick-Ansicht einspaltig und die Rollenpaarungen kompakt.
   Die Champion-Liste scrollt innerhalb der Auswahl; Suche und **Fest wählen**

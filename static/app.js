@@ -27,6 +27,7 @@ let readyCheckActive = false;
 let readyCheckAccepted = false;
 let selectedChampionId = 0;
 let championPickPending = false;
+let championPickLocking = false;
 let pickerSignature = "";
 let draftBuildKey = "";
 let draftBuildVersion = 0;
@@ -271,22 +272,19 @@ function renderChampionPicker() {
     button.setAttribute("aria-pressed", String(selected));
     button.setAttribute("aria-disabled", String(championPickPending));
   });
-  const selected = (state?.available_champions || []).find(champion => champion.id === selectedChampionId);
-  $("#selected-champion-name").textContent = selected?.name || "Noch keinen Champion gewählt";
-  const lock = $("#lock-champion");
-  const pickable = state?.pickable_champion_ids || [];
-  lock.disabled = championPickPending || !selected || (pickable.length > 0 && !pickable.includes(selectedChampionId)) || !state?.pick_action?.active;
-  lock.title = state?.pick_action?.active ? "" : "Du bist noch nicht mit deinem Pick an der Reihe.";
 }
 
 async function chooseChampion(championId, lock) {
   if (championPickPending) return;
   championPickPending = true;
-  const status = $("#champion-pick-status");
+  championPickLocking = lock;
+  selectedChampionId = championId;
+  const status = $("#own-pick-status");
   const lockButton = $("#lock-champion");
   status.textContent = lock ? "Wird fest gewählt …" : "Hover wird gesetzt …";
   status.classList.remove("error");
   lockButton.disabled = true;
+  if (!lock && $("#champion-dialog").open) $("#champion-dialog").close();
   renderChampionPicker();
   try {
     const response = await fetch("/api/champion-select", {
@@ -296,23 +294,24 @@ async function chooseChampion(championId, lock) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Der Champion konnte nicht gewählt werden.");
-    selectedChampionId = championId;
     status.textContent = lock ? "Champion fest gewählt." : "Hover im Client gesetzt.";
-    if (lock) $("#champion-dialog").close();
   } catch (error) {
+    selectedChampionId = state?.pick_action?.champion_id || localPlayer()?.champion_id || 0;
     status.textContent = error.message;
     status.classList.add("error");
   } finally {
     championPickPending = false;
+    championPickLocking = false;
     renderChampionPicker();
+    renderOwnPick();
   }
 }
 
 $("#champion-picker-button").addEventListener("click", () => {
   selectedChampionId = state?.pick_action?.champion_id || localPlayer()?.champion_id || 0;
   $("#champion-search").value = "";
-  $("#champion-pick-status").textContent = "";
-  $("#champion-pick-status").classList.remove("error");
+  $("#own-pick-status").textContent = "";
+  $("#own-pick-status").classList.remove("error");
   renderChampionPicker();
   updateDialogViewport();
   $("#champion-dialog").showModal();
@@ -389,7 +388,13 @@ function renderOwnPick() {
     <span class="own-pick-copy"><span class="eyebrow">DEIN CHAMPION · ${esc(status.toUpperCase())}</span><strong>${esc(picked ? player.name : "Champion auswählen")}</strong><small>${esc(roles[player?.position] || "Rolle noch offen")}</small></span>`;
   const button = $("#champion-picker-button");
   button.hidden = !state?.pick_action;
+  button.disabled = championPickPending;
   button.textContent = picked ? "Champion ändern" : "Champion wählen";
+  const lock = $("#lock-champion");
+  lock.hidden = !picked || !state?.pick_action || player?.status === "LOCKED";
+  lock.disabled = championPickPending || !state?.pick_action?.active;
+  lock.textContent = championPickLocking ? "Wird fest gewählt …" : "Fest wählen";
+  lock.title = state?.pick_action?.active ? "" : "Du bist noch nicht mit deinem Pick an der Reihe.";
 }
 
 let spellOptionsSignature = "";
@@ -454,7 +459,7 @@ $("#second-spell").addEventListener("change", () => { $("#spell-picker-status").
 $("#apply-spells").addEventListener("click", applySummonerSpells);
 
 function runeImportButton(info, index = 0, label = "Runen einspielen") {
-  return `<button class="button import-runes" data-champion="${esc(info.champion)}" data-position="${esc(info.position)}" data-tier="${esc(info.rank_tier)}" data-mode="${esc(info.game_mode)}" data-rune-index="${index}">${label}</button>`;
+  return `<button class="button pick-action-button import-runes" data-champion="${esc(info.champion)}" data-position="${esc(info.position)}" data-tier="${esc(info.rank_tier)}" data-mode="${esc(info.game_mode)}" data-rune-index="${index}">${label}</button>`;
 }
 
 function keystoneQuick(build, info, context = "game") {

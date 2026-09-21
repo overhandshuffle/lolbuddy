@@ -922,7 +922,7 @@ h1 {
 .rune-import-status.error,
 .lobby-action-status.error,
 .ready-check-status.error,
-#champion-pick-status.error { color:var(--danger); }
+.own-pick-status.error { color:var(--danger); }
 
 .alternatives {
   margin-top:25px;
@@ -1422,7 +1422,7 @@ h1 {
 
 .champion-dialog[open] {
   display:grid;
-  grid-template-rows:auto auto auto minmax(0,1fr) auto;
+  grid-template-rows:auto auto auto minmax(0,1fr);
 }
 
 .champion-dialog-head {
@@ -2033,9 +2033,25 @@ select:not([multiple]) {
   font-size:10px;
 }
 
-.own-pick-bar .champion-picker-button {
+.own-pick-actions {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  min-width:308px;
+}
+
+.own-pick-bar .champion-picker-button,
+.own-pick-bar #lock-champion {
   min-width:150px;
   min-height:46px;
+}
+
+.own-pick-status {
+  grid-column:1/-1;
+  min-height:11px;
+  color:var(--accent);
+  font-size:9px;
+  text-align:right;
 }
 
 .pick-setup {
@@ -2194,8 +2210,16 @@ select:not([multiple]) {
 }
 
 .spell-picker-fields select:disabled,
-.spell-picker-fields .secondary-button:disabled {
+.spell-picker-fields .pick-action-button:disabled {
   opacity:.5;
+}
+
+.pick-action-button {
+  min-width:150px;
+  min-height:46px;
+  padding:0 18px;
+  border-radius:5px;
+  font-size:12px;
 }
 
 .spell-picker-status {
@@ -2474,8 +2498,19 @@ select:not([multiple]) {
     font-size:25px;
   }
 
-  .own-pick-bar .champion-picker-button {
+  .own-pick-actions {
     width:100%;
+    min-width:0;
+  }
+
+  .own-pick-bar .champion-picker-button,
+  .own-pick-bar #lock-champion {
+    min-width:0;
+    width:100%;
+  }
+
+  .own-pick-status {
+    text-align:left;
   }
 
   .pick-setup {
@@ -2486,7 +2521,7 @@ select:not([multiple]) {
     grid-template-columns:repeat(2,minmax(0,1fr));
   }
 
-  .spell-picker-fields .secondary-button {
+  .spell-picker-fields .pick-action-button {
     grid-column:1/-1;
     min-height:46px;
   }
