@@ -1,9 +1,9 @@
 # lolbuddy
 
-Eine lokale Website für deinen League-Draft. Sie zeigt deine Lobby, beide Teams,
-Hover, fest gewählte Champions, Rollen und Bans. Dein eigener Champion wird
-automatisch verfolgt; sein OP.GG-Build erscheint mit Bildern für Items, Runen,
-Runen-Splitter und Summoner Spells.
+Eine lokale Website für deinen League-Draft. Während der Champion-Auswahl zeigt
+sie deinen Pick, beide Teams nach Rollen gegenübergestellt, Bans, Hauptrune und
+Summoner Spells. Sobald das Spiel startet, erscheint der vollständige OP.GG-Build
+mit Bildern für Items, Hauptrune und Summoner Spells.
 
 ## Starten
 
@@ -82,12 +82,15 @@ ist nicht mehr nötig.
 - Sobald ein Match gefunden wurde, erscheint auf der Website eine eigene
   **Spiel gefunden**-Ansicht. **Match annehmen** bestätigt den Ready Check im
   League-Client; anschließend öffnet sich automatisch wieder die Draft-Ansicht.
-- Hover einen Champion **im League-Client**: Der Build erscheint automatisch.
-- Hover einen Champion **auf der Website**: Zeigt vorübergehend dessen Build.
-  Ein Klick hält ihn offen; „Zurück zu deinem Pick“ folgt wieder deinem Champion.
-  Das funktioniert auch mit Tastaturfokus bzw. auf dem Handy per Tippen.
-- **Build anpassen** öffnet die Auswahl für Rolle und Tier. Weitere Statistiken
-  und situative Items lassen sich bei Bedarf aufklappen.
+- In der Champion-Auswahl stehen dein eigener Pick und dessen Hauptrune oben.
+  Darunter werden Top, Jungle, Mid, ADC und Support beider Teams direkt
+  gegenübergestellt. Die übrigen Champions sind reine Anzeige und nicht anklickbar.
+- Neben der empfohlenen Hauptrune übernimmt **Runen einspielen** die vollständige
+  Runenseite in den League-Client. Zwei Summoner Spells lassen sich ebenfalls direkt
+  auswählen und gemeinsam in den Client übertragen.
+- Der vollständige Build wird erst nach dem Spielstart angezeigt. **Build anpassen**
+  öffnet dann die Auswahl für Rolle und Tier; weitere Statistiken und situative
+  Items lassen sich bei Bedarf aufklappen.
 - **Rolle**: Standardmäßig die vom Client zugewiesene Rolle. Ohne Rollendaten
   verwendet OP.GG die meistgespielte Rolle. Du kannst sie manuell ändern. Falls
   OP.GG für eine Champion-/Rollen-Kombination keine Daten veröffentlicht, zeigt
@@ -96,16 +99,15 @@ ist nicht mehr nötig.
   auswählen. Die Auswahl bleibt beim Wechsel des Champions erhalten.
 - **Modus**: lolbuddy erkennt ARAM über den League-Client. In ARAM verwendet es
   automatisch OP.GGs globale ARAM-Builds; Rolle und Rang-Tier sind dort deaktiviert.
-- Ein neuer eigener Champion-Hover aktiviert wieder die automatische Ansicht.
 - Während der Champion-Auswahl öffnet **Champion wählen** eine durchsuchbare Liste
   deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt zunächst nur
   den Hover im Client. Erst **Fest wählen** loggt den Champion während deines
   Pick-Zugs verbindlich ein.
-- Alternative Core-Builds, Runenseiten und Spells lassen sich aufklappen.
-- Auf dem Handy sind **Teams & Bans** zunächst eingeklappt. **Items & Spells**
-  und **Runen** haben auf schmalen Bildschirmen eigene Ansichten. Die Champion-Liste
-  scrollt innerhalb der Auswahl; Suche und **Fest wählen** bleiben erreichbar.
-- **Runen in League übernehmen** erstellt beim ersten Mal eine Seite wie
+- Alternative Core-Builds und Spells lassen sich nach dem Spielstart aufklappen.
+- Auf dem Handy bleibt die Pick-Ansicht einspaltig und die Rollenpaarungen kompakt.
+  Die Champion-Liste scrollt innerhalb der Auswahl; Suche und **Fest wählen**
+  bleiben erreichbar.
+- **Runen einspielen** erstellt beim ersten Mal eine Seite wie
   `Ahri Mid` oder `Ahri ARAM` und aktiviert sie. Weitere Importe aktualisieren
   über die gespeicherte Seiten-ID nur diese verwaltete Seite; eigene Seiten
   bleiben unverändert.

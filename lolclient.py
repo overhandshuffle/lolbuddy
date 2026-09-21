@@ -10,6 +10,7 @@ import urllib3
 
 POLL_INTERVAL = 0.25  # Sekunden
 START_RETRY_INTERVAL = 2.0  # Sekunden
+SUMMONER_SPELL_IDS = (4, 14, 12, 6, 7, 21, 3, 1, 11, 13, 32)
 
 
 # League benutzt lokal ein selbstsigniertes Zertifikat.
@@ -241,6 +242,25 @@ def get_playable_champions(session, base_url):
     return champions
 
 
+def get_summoner_spells(session, base_url):
+    """Liest die normalen Summoner Spells samt erlaubter Spielmodi aus dem Client."""
+
+    response = session.get(
+        f"{base_url}/lol-game-data/assets/v1/summoner-spells.json", timeout=4
+    )
+    response.raise_for_status()
+    by_id = {
+        int(spell.get("id", 0) or 0): {
+            "id": int(spell.get("id", 0) or 0),
+            "name": spell.get("name") or str(spell.get("id", "")),
+            "game_modes": tuple(spell.get("gameModes") or ()),
+        }
+        for spell in response.json()
+        if int(spell.get("id", 0) or 0) in SUMMONER_SPELL_IDS
+    }
+    return tuple(by_id[spell_id] for spell_id in SUMMONER_SPELL_IDS if spell_id in by_id)
+
+
 def get_pickable_champion_ids(session, base_url):
     """Liest die für den aktuellen Draft tatsächlich erlaubten Champions."""
 
@@ -303,6 +323,39 @@ def select_champion(champion_id, *, lock=False):
         if not response.ok:
             message = "fest gewählt" if lock else "ausgewählt"
             raise ChampionSelectError(f"Der Champion konnte nicht {message} werden.")
+    finally:
+        if session is not None:
+            session.close()
+
+
+class SummonerSpellError(RuntimeError):
+    """Die gewünschten Summoner Spells können gerade nicht gesetzt werden."""
+
+
+def set_summoner_spells(first_spell_id, second_spell_id):
+    """Setzt beide Summoner Spells der lokalen Champ-Select-Auswahl."""
+
+    first_spell_id = int(first_spell_id)
+    second_spell_id = int(second_spell_id)
+    if (
+        first_spell_id not in SUMMONER_SPELL_IDS
+        or second_spell_id not in SUMMONER_SPELL_IDS
+        or first_spell_id == second_spell_id
+    ):
+        raise SummonerSpellError("Bitte zwei unterschiedliche Summoner Spells wählen.")
+
+    session = None
+    try:
+        session, base_url = connect_to_lcu()
+        if get_phase(session, base_url) != "ChampSelect":
+            raise SummonerSpellError("Die Champion-Auswahl ist nicht mehr aktiv.")
+        response = session.patch(
+            f"{base_url}/lol-champ-select/v1/session/my-selection",
+            json={"spell1Id": first_spell_id, "spell2Id": second_spell_id},
+            timeout=3,
+        )
+        if not response.ok:
+            raise SummonerSpellError("Der League-Client hat diese Spell-Kombination abgelehnt.")
     finally:
         if session is not None:
             session.close()

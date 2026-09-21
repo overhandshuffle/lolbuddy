@@ -207,6 +207,7 @@ def empty_state():
             "queue_id": 0, "available_queues": [], "can_manage_lobby": False,
             "show_position_selector": False, "local_positions": {"first": "", "second": ""},
             "available_champions": [], "pickable_champion_ids": [], "pick_action": None,
+            "summoner_spells": {"first": 0, "second": 0}, "available_summoner_spells": [],
             "matchmaking": {"active": False, "elapsed_seconds": 0, "estimated_seconds": 0},
             "logged_in": False}
 
@@ -262,6 +263,12 @@ def draft_state(selection, champions):
                      for source, target in (("myTeamBans", "own"), ("theirTeamBans", "enemy"))}
     timer = selection.get("timer") or {}
     teams["timer"] = {"phase": timer.get("phase", ""), "seconds": max(0, int(timer.get("adjustedTimeLeftInPhase", 0) / 1000))}
+    local_cell = selection.get("localPlayerCellId")
+    local = next((player for player in selection.get("myTeam", []) if player.get("cellId") == local_cell), {})
+    teams["summoner_spells"] = {
+        "first": int(local.get("spell1Id", 0) or 0),
+        "second": int(local.get("spell2Id", 0) or 0),
+    }
     return teams
 
 
@@ -331,7 +338,7 @@ class LcuMonitor:
     def run(self):
         session = None
         connected = False
-        champions, playable_champions = {}, []
+        champions, playable_champions, summoner_spells = {}, [], ()
         previous_phase = None
         queue, game_mode = "", ""
         queue_description = ""
@@ -346,6 +353,7 @@ class LcuMonitor:
                     log.info("League-Client verbunden.")
                     champions = lolclient.load_champion_details(session, base_url)
                     playable_champions = lolclient.get_playable_champions(session, base_url)
+                    summoner_spells = lolclient.get_summoner_spells(session, base_url)
                     queue_cache, member_names = {}, {}
                     available_queues = lolclient.get_available_queues(session, base_url)
                     previous_phase = None
@@ -380,6 +388,12 @@ class LcuMonitor:
                             pickable_ids = lolclient.get_pickable_champion_ids(session, base_url)
                             last_pickable_check = now
                         value["pickable_champion_ids"] = sorted(pickable_ids or [])
+                        mode = str(game_mode or "").upper()
+                        value["available_summoner_spells"] = [
+                            {"id": spell["id"], "name": spell["name"]}
+                            for spell in summoner_spells
+                            if not mode or mode in spell["game_modes"]
+                        ]
                     else:
                         # Der Phasenwechsel und die Session erscheinen nicht atomar.
                         self.stop.wait(delay)
@@ -642,6 +656,27 @@ def create_app(state=None, builds=None, *, lan_url=""):
             return jsonify(error=str(error)), 409
         except (FileNotFoundError, OSError, RuntimeError, requests.RequestException):
             return jsonify(error="Der Champion konnte im League-Client nicht ausgewählt werden."), 502
+
+    @app.post("/api/champion-select/spells")
+    def champion_select_spells():
+        data = request.get_json(silent=True)
+        first = data.get("first") if isinstance(data, dict) else None
+        second = data.get("second") if isinstance(data, dict) else None
+        current = state.read()
+        allowed = {spell["id"] for spell in current.get("available_summoner_spells", [])}
+        if type(first) is not int or type(second) is not int or first == second:
+            return jsonify(error="Bitte zwei unterschiedliche Summoner Spells wählen."), 400
+        if current.get("phase") != "ChampSelect":
+            return jsonify(error="Summoner Spells können nur während der Champion-Auswahl geändert werden."), 409
+        if first not in allowed or second not in allowed:
+            return jsonify(error="Einer dieser Summoner Spells ist in diesem Spielmodus nicht verfügbar."), 400
+        try:
+            lolclient.set_summoner_spells(first, second)
+            return jsonify(ok=True)
+        except lolclient.SummonerSpellError as error:
+            return jsonify(error=str(error)), 409
+        except (FileNotFoundError, OSError, RuntimeError, requests.RequestException):
+            return jsonify(error="Die Summoner Spells konnten im League-Client nicht geändert werden."), 502
 
     @app.get("/api/build")
     def build():

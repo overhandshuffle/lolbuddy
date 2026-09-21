@@ -117,21 +117,39 @@
     </div>
 
     <div class="workspace">
-      <aside class="draft" aria-label="Lobby und Champion-Auswahl">
-        <details class="draft-details" id="draft-details" open>
-          <summary class="draft-heading"><span>Draft</span><span id="draft-label">LIVE</span><span class="disclosure-chevron" aria-hidden="true"></span></summary>
+      <section class="pick-view" id="pick-view" aria-label="Champion-Auswahl" hidden>
+        <section class="matchups" aria-labelledby="matchups-title">
+          <div class="matchups-heading"><div><p class="eyebrow">PICK &amp; BAN</p><h2 id="matchups-title">Matchups</h2></div><span id="draft-label">LIVE</span></div>
           <div id="teams"></div>
-          <p class="draft-hint">Champion antippen oder anklicken, um seinen Build zu öffnen.</p>
-        </details>
-      </aside>
+          <div class="draft-bans" id="draft-bans"></div>
+        </section>
 
-      <section class="build-panel" aria-label="Champion-Build">
+        <div class="own-pick-bar">
+          <div class="own-pick" id="own-pick"></div>
+          <button class="champion-picker-button" id="champion-picker-button" type="button">Champion wählen</button>
+        </div>
+
+        <div class="pick-setup">
+          <section class="pick-rune" aria-labelledby="pick-rune-title">
+            <div class="pick-section-heading"><span>01</span><div><p class="eyebrow">EMPFEHLUNG</p><h2 id="pick-rune-title">Hauptrune</h2></div></div>
+            <div id="pick-rune-content" aria-live="polite"></div>
+          </section>
+
+          <section class="spell-picker" aria-labelledby="spell-picker-title">
+            <div class="pick-section-heading"><span>02</span><div><p class="eyebrow">DEIN SETUP</p><h2 id="spell-picker-title">Summoner Spells</h2></div></div>
+            <div class="spell-picker-fields">
+              <label>Erster Spell<select id="first-spell" aria-label="Erster Summoner Spell"></select></label>
+              <label>Zweiter Spell<select id="second-spell" aria-label="Zweiter Summoner Spell"></select></label>
+              <button class="secondary-button" id="apply-spells" type="button">Im Client setzen</button>
+            </div>
+            <p class="spell-picker-status" id="spell-picker-status" role="status"></p>
+          </section>
+        </div>
+      </section>
+
+      <section class="build-panel" id="build-panel" aria-label="Champion-Build" hidden>
         <div class="build-toolbar">
-          <div class="build-actions">
-            <span class="follow-label" id="follow-label"><span class="follow-icon" aria-hidden="true">↳</span> Folgt deinem Champion</span>
-            <button class="text-button" id="follow-button" hidden>Zurück zu deinem Pick <span aria-hidden="true">↗</span></button>
-            <button class="champion-picker-button" id="champion-picker-button" type="button" hidden>Champion wählen</button>
-          </div>
+          <span class="build-kicker">DEIN IN-GAME BUILD</span>
           <details class="build-settings">
             <summary>Build anpassen<span class="disclosure-chevron" aria-hidden="true"></span></summary>
             <div class="build-settings-fields">

@@ -245,6 +245,24 @@ class ClientTests(unittest.TestCase):
         )
         session.post.assert_not_called()
 
+    def test_set_summoner_spells_updates_own_champ_select_selection(self):
+        session = Mock()
+        session.patch.return_value.ok = True
+        with patch.object(lolclient, "connect_to_lcu", return_value=(session, "https://127.0.0.1:1234")), \
+             patch.object(lolclient, "get_phase", return_value="ChampSelect"):
+            lolclient.set_summoner_spells(4, 14)
+        session.patch.assert_called_once_with(
+            "https://127.0.0.1:1234/lol-champ-select/v1/session/my-selection",
+            json={"spell1Id": 4, "spell2Id": 14}, timeout=3,
+        )
+        session.close.assert_called_once_with()
+
+    def test_set_summoner_spells_rejects_duplicates_before_connecting(self):
+        with patch.object(lolclient, "connect_to_lcu") as connect:
+            with self.assertRaises(lolclient.SummonerSpellError):
+                lolclient.set_summoner_spells(4, 4)
+        connect.assert_not_called()
+
     def test_accept_ready_check_posts_to_lcu_and_closes_session(self):
         session = Mock()
         session.post.return_value.status_code = 204
@@ -292,12 +310,13 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.team(selection)[0][1:3], (0, "OFFEN"))
 
     def test_snapshot_filters_empty_bans_and_normalizes_role(self):
-        selection = self.selection({"championId": 103, "assignedPosition": "bottom"})
+        selection = self.selection({"championId": 103, "assignedPosition": "bottom", "spell1Id": 4, "spell2Id": 14})
         selection.update(bans={"myTeamBans": [0, -1, 222]}, timer={"adjustedTimeLeftInPhase": 14500})
         state = app.draft_state(selection, TEST_CHAMPIONS)
         self.assertEqual(state["own_team"][0]["position"], "adc")
         self.assertEqual(state["timer"]["seconds"], 14)
         self.assertEqual([c["champion_id"] for c in state["bans"]["own"]], [222])
+        self.assertEqual(state["summoner_spells"], {"first": 4, "second": 14})
 
     def test_custom_lobby_places_local_team_first(self):
         lobby = {"localMember": {"puuid": "local"}, "gameConfig": {"isCustom": True, "gameMode": "ARAM",
@@ -318,6 +337,7 @@ class ClientTests(unittest.TestCase):
         with patch.object(lolclient, "connect_to_lcu", return_value=(session, "https://127.0.0.1:1")) as connect, \
              patch.object(lolclient, "load_champion_details", return_value={}), \
              patch.object(lolclient, "get_playable_champions", return_value=[]), \
+             patch.object(lolclient, "get_summoner_spells", return_value=()), \
              patch.object(lolclient, "get_available_queues", return_value=[]), \
              patch.object(lolclient, "get_phase", side_effect=["None", requests.ConnectionError(), "None"]), \
              patch.object(state, "publish", wraps=state.publish) as publish:
@@ -566,6 +586,27 @@ class CacheAndWebTests(unittest.TestCase):
         self.assertEqual(client.post(
             "/api/champion-select", json={"champion_id": 103, "lock": True}
         ).status_code, 409)
+
+    def test_champion_select_route_updates_allowed_summoner_spells(self):
+        builds = Mock(region="euw", tier="emerald_plus")
+        state = app.LiveState()
+        state.publish({
+            **app.empty_state(), "connected": True, "phase": "ChampSelect",
+            "available_summoner_spells": [
+                {"id": 4, "name": "Blitz"}, {"id": 14, "name": "Entzünden"},
+            ],
+        })
+        client = app.create_app(state=state, builds=builds).test_client()
+        with patch.object(app.lolclient, "set_summoner_spells") as set_spells:
+            response = client.post("/api/champion-select/spells", json={"first": 4, "second": 14})
+        self.assertEqual(response.status_code, 200)
+        set_spells.assert_called_once_with(4, 14)
+        self.assertEqual(client.post(
+            "/api/champion-select/spells", json={"first": 4, "second": 4}
+        ).status_code, 400)
+        self.assertEqual(client.post(
+            "/api/champion-select/spells", json={"first": 4, "second": 12}
+        ).status_code, 400)
 
     def test_missing_role_returns_specific_message(self):
         builds = Mock(region="euw", tier="emerald_plus")

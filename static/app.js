@@ -7,10 +7,10 @@ const positionChoices = [["top","Top"],["jungle","Jungle"],["mid","Mid"],["adc",
 const phases = {
   Offline: ["Deine Lobby", "Öffne League of Legends. Die Verbindung entsteht automatisch."],
   None: ["Bereit für die nächste Runde", "Starte eine Lobby im League-Client."],
-  Lobby: ["Deine Lobby", "Sobald du einen Champion hoverst, erscheint hier dein Build."],
+  Lobby: ["Deine Lobby", "Stelle deine Gruppe zusammen und starte die Spielsuche."],
   Matchmaking: ["Spielsuche läuft", "Deine Lobby ist bereit. Gleich geht’s in die Champion-Auswahl."],
   ReadyCheck: ["Spiel gefunden", "Bestätige das Match im League-Client."],
-  ChampSelect: ["Champion-Auswahl", "Dein Draft in Echtzeit. Dein Build passend zum Pick."],
+  ChampSelect: ["Champion-Auswahl", "Dein Pick, deine Spells und alle Matchups auf einen Blick."],
   GameStart: ["Das Spiel startet", "Dein Build bleibt während des Spiels geöffnet."],
   InProgress: ["Ab in die Kluft", "Dein Build bleibt während des Spiels geöffnet."],
   Reconnect: ["Zurück ins Spiel", "Dein letzter Draft und Build bleiben hier verfügbar."],
@@ -19,46 +19,23 @@ const phases = {
   EndOfGame: ["Spiel beendet", "Bereit für die nächste Runde?"],
 };
 let state = null;
-let preview = null;
-let pinned = null;
-let restoringFocus = false;
 let localSignature = "";
 let teamsSignature = "";
 let activeKey = "";
 let requestVersion = 0;
-let hoverTimer;
 let readyCheckActive = false;
 let readyCheckAccepted = false;
 let selectedChampionId = 0;
 let championPickPending = false;
 let pickerSignature = "";
-let buildSection = "items";
+let draftBuildKey = "";
+let draftBuildVersion = 0;
+let draftTimerDeadline = 0;
+let draftTimerPhase = "";
+const buildPhases = new Set(["GameStart", "InProgress", "Reconnect", "WaitingForStats", "PreEndOfGame", "EndOfGame"]);
+const roleOrder = ["top", "jungle", "mid", "adc", "support"];
 
 const compactLayout = window.matchMedia("(max-width: 820px)");
-const stackedBuild = window.matchMedia("(max-width: 1180px)");
-$("#draft-details").open = !compactLayout.matches;
-compactLayout.addEventListener("change", event => { $("#draft-details").open = !event.matches; });
-
-function updateBuildSections() {
-  document.querySelectorAll("[data-build-section]").forEach(button => {
-    const selected = button.dataset.buildSection === buildSection;
-    button.setAttribute("aria-selected", String(selected));
-    button.tabIndex = selected ? 0 : -1;
-  });
-  document.querySelectorAll("[data-build-pane]").forEach(pane => {
-    pane.hidden = stackedBuild.matches && pane.dataset.buildPane !== buildSection;
-    if (stackedBuild.matches) {
-      pane.setAttribute("role", "tabpanel");
-      pane.setAttribute("aria-labelledby", `${pane.dataset.buildPane}-tab`);
-      pane.tabIndex = 0;
-    } else {
-      pane.removeAttribute("role");
-      pane.removeAttribute("aria-labelledby");
-      pane.removeAttribute("tabindex");
-    }
-  });
-}
-stackedBuild.addEventListener("change", updateBuildSections);
 
 function updateDialogViewport() {
   document.documentElement.style.setProperty("--dialog-viewport", `${window.visualViewport?.height || window.innerHeight}px`);
@@ -79,16 +56,39 @@ document.addEventListener("error", (event) => {
 const rate = (number) => Number.isFinite(number) ? `${number.toLocaleString("de-DE", {minimumFractionDigits:1, maximumFractionDigits:1})} %` : "–";
 const localPlayer = () => state?.own_team.find((player) => player.is_local) || null;
 const currentMode = () => /ARAM/i.test(`${state?.game_mode || ""} ${state?.queue || ""}`) ? "aram" : "classic";
-const playerKey = (player) => player ? `${player.team || "own"}:${player.cell_id}` : "";
-function allPlayers() {
-  return [...(state?.own_team || []).map(p => ({...p, team:"own"})), ...(state?.enemy_team || []).map(p => ({...p, team:"enemy"}))];
-}
-function findPlayer(key) { return allPlayers().find(p => playerKey(p) === key); }
 
 function queueTime(seconds) {
   const total = Math.max(0, Number(seconds) || 0);
   return `${Math.floor(total / 60)}:${String(Math.floor(total % 60)).padStart(2, "0")}`;
 }
+
+function paintDraftTimer() {
+  const timer = $("#draft-timer");
+  if (!draftTimerDeadline || state?.phase !== "ChampSelect") {
+    timer.hidden = true;
+    return;
+  }
+  timer.hidden = false;
+  timer.textContent = `${Math.max(0, Math.ceil((draftTimerDeadline - performance.now()) / 1000))}s`;
+}
+
+function syncDraftTimer(timerState) {
+  if (state?.phase !== "ChampSelect" || !timerState) {
+    draftTimerDeadline = 0;
+    draftTimerPhase = "";
+    paintDraftTimer();
+    return;
+  }
+  const phase = timerState.phase || "draft";
+  const proposed = performance.now() + Math.max(0, Number(timerState.seconds) || 0) * 1000;
+  if (phase !== draftTimerPhase || !draftTimerDeadline || Math.abs(proposed - draftTimerDeadline) > 1500) {
+    draftTimerDeadline = proposed;
+    draftTimerPhase = phase;
+  }
+  paintDraftTimer();
+}
+
+window.setInterval(paintDraftTimer, 200);
 
 function queueOptions() {
   return (state.available_queues || []).map(queue => {
@@ -338,30 +338,171 @@ $("#lock-champion").addEventListener("click", () => {
   if (selectedChampionId) chooseChampion(selectedChampionId, true);
 });
 
-function playerRow(player, index, team) {
-  const detail = {LOCKED:"Gewählt", HOVER:"Hover", OFFEN:"Wartet", LOBBY:"In der Lobby", BOT:"Bot"}[player?.status] || "Wartet";
-  const name = player?.name || "Noch offen";
-  return `<button class="player ${player?.is_local ? "local" : ""}" data-player="${team}:${player?.cell_id ?? index}" ${!player?.champion_id ? "disabled" : ""} aria-label="${esc(name)}${player?.position ? `, ${esc(roles[player.position])}` : ""}: Build ansehen">
-    <span class="portrait">${player?.image_url ? image(player.image_url, "") : "·"}</span>
-    <span class="player-copy"><span class="player-name">${esc(name)}${player?.is_local ? '<span class="you">DU</span>' : ""}</span><span class="player-detail">${esc(roles[player?.position] || "Rolle offen")} <span aria-hidden="true">·</span> <span class="${player?.status === "HOVER" ? "hover-status" : ""}">${detail}</span></span></span>
-    ${player?.status === "LOCKED" ? '<span class="lock" aria-label="Fest gewählt">✓</span>' : ""}</button>`;
+function teamSlots(team) {
+  const slots = Object.fromEntries(roleOrder.map(role => [role, null]));
+  const unassigned = [];
+  for (const player of team || []) {
+    if (roleOrder.includes(player.position) && !slots[player.position]) slots[player.position] = player;
+    else unassigned.push(player);
+  }
+  for (const role of roleOrder) {
+    if (!slots[role] && unassigned.length) slots[role] = unassigned.shift();
+  }
+  return slots;
+}
+
+function matchupPlayer(player, side) {
+  const picked = Boolean(player?.champion_id);
+  const name = picked ? player.name : "Noch offen";
+  const status = player?.status === "HOVER" ? "Hover" : picked ? "Gewählt" : "Wartet";
+  const portrait = `<span class="matchup-portrait">${picked && player.image_url ? image(player.image_url, "") : "·"}</span>`;
+  const copy = `<span class="matchup-copy"><strong>${esc(name)}${player?.is_local ? '<span class="you">DU</span>' : ""}</strong><small class="${player?.status === "HOVER" ? "hover-status" : ""}">${status}</small></span>`;
+  return `<div class="matchup-player ${side} ${player?.is_local ? "local" : ""}" aria-label="${esc(name)}, ${status}">${side === "enemy" ? copy + portrait : portrait + copy}</div>`;
+}
+
+function banStrip(side, label) {
+  const bans = state.bans?.[side] || [];
+  return `<div class="ban-strip"><span>${label}</span><div>${bans.length ? bans.map(ban => `<span class="ban" title="${esc(ban.name)} gebannt">${image(ban.image_url, `${ban.name} gebannt`)}</span>`).join("") : '<small>Noch keine Bans</small>'}</div></div>`;
 }
 
 function renderTeams() {
   const signature = JSON.stringify([state.own_team, state.enemy_team, state.bans]);
   if (signature === teamsSignature) return;
   teamsSignature = signature;
-  const focused = document.activeElement?.dataset?.player;
-  $("#teams").innerHTML = [["Dein Team", "own", state.own_team], ["Gegner", "enemy", state.enemy_team]].map(([label, side, team]) => {
-    const rows = Array.from({length:Math.max(5, team.length)}, (_, index) => playerRow(team[index], index, side)).join("");
-    const bans = (state.bans?.[side] || []).map(ban => `<span class="ban" title="${esc(ban.name)} gebannt">${image(ban.image_url, `${ban.name} gebannt`)}</span>`).join("");
-    const inLobby = ["Lobby", "Matchmaking", "ReadyCheck"].includes(state.phase);
-    const count = inLobby ? team.length : team.filter(p => p.champion_id).length;
-    return `<section class="team-section"><h3 class="team-title">${label}<small title="${inLobby ? "Spieler" : "Champions gewählt oder gehovert"}">${count} / ${Math.max(5, team.length)}</small></h3>${rows}${bans ? `<div class="bans" aria-label="Bans">${bans}</div>` : ""}</section>`;
-  }).join("");
-  restoringFocus = true;
-  if (focused) [...document.querySelectorAll("[data-player]")].find(row => row.dataset.player === focused)?.focus({preventScroll:true});
-  restoringFocus = false;
+  const own = teamSlots(state.own_team);
+  const enemy = teamSlots(state.enemy_team);
+  $("#teams").innerHTML = `<div class="matchup-labels"><span>Dein Team</span><span>Gegner</span></div>${roleOrder.map(role => `
+    <div class="matchup-row">
+      ${matchupPlayer(own[role], "own")}
+      <span class="matchup-role">${esc(roles[role])}</span>
+      ${matchupPlayer(enemy[role], "enemy")}
+    </div>`).join("")}`;
+  $("#draft-bans").innerHTML = banStrip("own", "Deine Bans") + banStrip("enemy", "Gegnerische Bans");
+}
+
+function renderOwnPick() {
+  const player = localPlayer();
+  const picked = Boolean(player?.champion_id);
+  const status = player?.status === "LOCKED" ? "Fest gewählt" : picked ? "Aktueller Hover" : "Noch offen";
+  $("#own-pick").innerHTML = `
+    <span class="own-pick-portrait">${picked && player.image_url ? image(player.image_url, "") : "?"}</span>
+    <span class="own-pick-copy"><span class="eyebrow">DEIN CHAMPION · ${esc(status.toUpperCase())}</span><strong>${esc(picked ? player.name : "Champion auswählen")}</strong><small>${esc(roles[player?.position] || "Rolle noch offen")}</small></span>`;
+  const button = $("#champion-picker-button");
+  button.hidden = !state?.pick_action;
+  button.textContent = picked ? "Champion ändern" : "Champion wählen";
+}
+
+let spellOptionsSignature = "";
+let spellStateSignature = "";
+let spellPickPending = false;
+
+function renderSpellPicker() {
+  const spells = state?.available_summoner_spells || [];
+  const signature = JSON.stringify(spells);
+  if (signature !== spellOptionsSignature) {
+    spellOptionsSignature = signature;
+    const options = spells.map(spell => `<option value="${spell.id}">${esc(spell.name)}</option>`).join("");
+    $("#first-spell").innerHTML = options;
+    $("#second-spell").innerHTML = options;
+  }
+  const incoming = `${state?.summoner_spells?.first || 0}:${state?.summoner_spells?.second || 0}`;
+  if (!spellPickPending && incoming !== spellStateSignature) {
+    spellStateSignature = incoming;
+    $("#first-spell").value = String(state?.summoner_spells?.first || spells[0]?.id || "");
+    $("#second-spell").value = String(state?.summoner_spells?.second || spells[1]?.id || "");
+  }
+  const unavailable = spells.length < 2;
+  $("#first-spell").disabled = spellPickPending || unavailable;
+  $("#second-spell").disabled = spellPickPending || unavailable;
+  $("#apply-spells").disabled = spellPickPending || unavailable;
+}
+
+async function applySummonerSpells() {
+  if (spellPickPending) return;
+  const first = Number($("#first-spell").value);
+  const second = Number($("#second-spell").value);
+  const status = $("#spell-picker-status");
+  if (!first || !second || first === second) {
+    status.textContent = "Bitte zwei unterschiedliche Spells wählen.";
+    status.classList.add("error");
+    return;
+  }
+  spellPickPending = true;
+  status.textContent = "Wird im Client gesetzt …";
+  status.classList.remove("error");
+  renderSpellPicker();
+  try {
+    const response = await fetch("/api/champion-select/spells", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({first, second}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Die Spells konnten nicht gesetzt werden.");
+    status.textContent = "✓ Im League-Client gesetzt";
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  } finally {
+    spellPickPending = false;
+    renderSpellPicker();
+  }
+}
+
+$("#first-spell").addEventListener("change", () => { $("#spell-picker-status").textContent = ""; });
+$("#second-spell").addEventListener("change", () => { $("#spell-picker-status").textContent = ""; });
+$("#apply-spells").addEventListener("click", applySummonerSpells);
+
+function runeImportButton(info, index = 0, label = "Runen einspielen") {
+  return `<button class="button import-runes" data-champion="${esc(info.champion)}" data-position="${esc(info.position)}" data-tier="${esc(info.rank_tier)}" data-mode="${esc(info.game_mode)}" data-rune-index="${index}">${label}</button>`;
+}
+
+function keystoneQuick(build, info, context = "game") {
+  if (!build) return '<p class="no-data">Keine Runenempfehlung verfügbar.</p>';
+  const keystone = build.primary_runes?.[0];
+  if (!keystone) return '<p class="no-data">Keine Hauptrune verfügbar.</p>';
+  return `<div class="keystone-quick ${context}">
+    <div class="keystone-info">${image(keystone.image_url, "")}<span><small>Hauptrune</small><strong>${esc(keystone.name)}</strong></span></div>
+    ${runeImportButton(info)}
+    <p class="rune-import-status" role="status"></p>
+  </div>`;
+}
+
+async function loadDraftRune(player, position, tier, mode, key, version) {
+  try {
+    const query = new URLSearchParams({champion:player.alias || player.name, tier, mode});
+    if (position) query.set("position", position);
+    const response = await fetch(`/api/build?${query}`, {signal:AbortSignal.timeout(30000)});
+    const info = await response.json();
+    if (!response.ok) throw new Error(info.error || "Runenempfehlung nicht verfügbar.");
+    if (version === draftBuildVersion && state?.phase === "ChampSelect") {
+      $("#pick-rune-content").innerHTML = keystoneQuick(info.rune_builds?.[0], info, "draft");
+    }
+  } catch (error) {
+    if (version !== draftBuildVersion) return;
+    const message = ["TimeoutError", "AbortError"].includes(error.name) ? "OP.GG antwortet gerade zu langsam." : error.message;
+    $("#pick-rune-content").innerHTML = `<p class="pick-inline-error">${esc(message)}</p>`;
+  }
+}
+
+function updateDraftSetup() {
+  if (state?.phase !== "ChampSelect") return;
+  const player = localPlayer();
+  if (!player?.champion_id) {
+    draftBuildKey = "";
+    draftBuildVersion++;
+    $("#pick-rune-content").innerHTML = '<p class="pick-placeholder">Wähle oder hover zuerst deinen Champion.</p>';
+    return;
+  }
+  const mode = currentMode();
+  const position = mode === "aram" ? "" : player.position || "";
+  const tier = $("#tier-select").value;
+  const key = `${player.alias || player.name}:${position}:${tier}:${mode}`;
+  if (key === draftBuildKey) return;
+  draftBuildKey = key;
+  const version = ++draftBuildVersion;
+  $("#pick-rune-content").innerHTML = '<div class="pick-rune-loading"><span class="loader" aria-hidden="true"></span><span>Hauptrune wird geladen …</span></div>';
+  loadDraftRune(player, position, tier, mode, key, version);
 }
 
 function applyState(value) {
@@ -373,11 +514,12 @@ function applyState(value) {
   $("#phase-title").textContent = phase[0];
   $("#phase-description").textContent = phase[1];
   $("#queue-label").textContent = state.queue;
-  $("#champion-picker-button").hidden = state.phase !== "ChampSelect" || !state.pick_action;
   const isReadyCheck = state.phase === "ReadyCheck";
   const clientUnavailable = !state.connected || state.logged_in === false;
   const isIdle = clientUnavailable || state.phase === "None";
   const isPregame = ["Lobby", "Matchmaking"].includes(state.phase);
+  const isChampSelect = state.phase === "ChampSelect";
+  const isGame = buildPhases.has(state.phase);
   if (isIdle) {
     const offline = clientUnavailable;
     $("#idle-eyebrow").textContent = offline ? "LEAGUE OF LEGENDS" : "BEREIT WENN DU ES BIST";
@@ -399,6 +541,8 @@ function applyState(value) {
   $("#idle-view").hidden = !isIdle;
   $("#pregame-view").hidden = !isPregame;
   $("#dashboard-view").hidden = isReadyCheck || isIdle || isPregame;
+  $("#pick-view").hidden = !isChampSelect;
+  $("#build-panel").hidden = !isGame;
   $("#ready-check-queue").textContent = state.queue || "League of Legends";
   if (isPregame) renderPregame();
   if ($("#champion-dialog").open) {
@@ -411,21 +555,29 @@ function applyState(value) {
   }
   $("#mode-label").textContent = currentMode() === "aram" ? "ARAM" : "Kluft der Beschwörer";
   $("#draft-label").textContent = state.connected ? "LIVE" : "OFFLINE";
-  const timer = $("#draft-timer");
-  timer.hidden = !state.timer?.seconds;
-  timer.textContent = state.timer ? `${state.timer.seconds}s` : "";
+  syncDraftTimer(state.timer);
   const local = localPlayer();
   const signature = `${local?.champion_id || 0}:${local?.position || ""}:${local?.cell_id ?? ""}`;
   if (signature !== localSignature) {
     localSignature = signature;
-    preview = pinned = null;
-    clearTimeout(hoverTimer);
     $("#role-select").value = "";
+    activeKey = "";
   }
-  if (pinned && !findPlayer(pinned)?.champion_id) pinned = null;
-  if (preview && !findPlayer(preview)?.champion_id) preview = null;
-  renderTeams();
-  updateBuild();
+  if (!isChampSelect && draftBuildKey) {
+    draftBuildKey = "";
+    draftBuildVersion++;
+  }
+  if (isChampSelect) {
+    renderOwnPick();
+    renderTeams();
+    renderSpellPicker();
+    updateDraftSetup();
+  } else if (isGame) {
+    updateBuild();
+  } else {
+    requestVersion++;
+    activeKey = "";
+  }
 }
 
 $("#accept-ready-check").addEventListener("click", async () => {
@@ -475,13 +627,6 @@ function buildRate(build) {
   if (!build) return "";
   return `<p class="build-rate"><span><b>${rate(build.win_rate)}</b> Winrate</span><span>${rate(build.pick_rate)} Pickrate</span></p>`;
 }
-function runeRow(rune, key = false) {
-  return `<div class="rune ${key ? "keystone" : ""}">${image(rune.image_url, "")}<span>${esc(rune.name)}</span></div>`;
-}
-function runeBuild(build, index, info) {
-  if (!build) return '<p class="no-data">Für diese Rolle sind keine Runen verfügbar.</p>';
-  return `<div class="rune-styles"><div><div class="rune-style-title">${image(build.primary_style_image, "")}${esc(build.primary_style)}</div>${build.primary_runes.map((rune, i) => runeRow(rune, i === 0)).join("")}</div><div><div class="rune-style-title">${image(build.secondary_style_image, "")}${esc(build.secondary_style)}</div><div class="secondary-runes">${build.secondary_runes.map(rune => runeRow(rune)).join("")}</div></div></div><div class="shards">${build.shard_details.map(shard => `<div class="shard" title="${esc(shard.name)}">${image(shard.image_url, "")}<span>${esc(shard.name)}</span></div>`).join("")}</div>${buildRate(build)}<p class="build-rate">${Number(build.games).toLocaleString("de-DE")} Spiele</p><div class="rune-import"><button class="button import-runes" data-champion="${esc(info.champion)}" data-position="${esc(info.position)}" data-tier="${esc(info.rank_tier)}" data-mode="${esc(info.game_mode)}" data-rune-index="${index}">Runen in League übernehmen</button><p class="rune-import-status" role="status"></p></div>`;
-}
 function spellBuild(build) {
   if (!build) return '<p class="no-data">Keine Summoner-Spells verfügbar.</p>';
   return `<div class="spell-list">${build.spells.map(spell => `<div class="spell">${image(spell.image_url, spell.name)}<span>${esc(spell.name)}</span></div>`).join("")}</div>${buildRate(build)}`;
@@ -492,22 +637,20 @@ function renderBuild(player, info) {
   const requestedRole = info.game_mode === "aram" ? "aram" : $("#role-select").value || player.position;
   const mismatch = requestedRole && requestedRole !== info.position ? `OP.GG liefert hier ${roles[info.position] || info.position} statt ${roles[requestedRole]}. ` : "";
   $("#build").innerHTML = `${hero(player, info)}
-    <div class="build-tabs" role="tablist" aria-label="Build-Ansicht"><button id="items-tab" type="button" role="tab" data-build-section="items" aria-controls="items-pane">Items &amp; Spells</button><button id="runes-tab" type="button" role="tab" data-build-section="runes" aria-controls="runes-pane">Runen</button></div>
-    <div class="build-columns"><div id="items-pane" data-build-pane="items" aria-labelledby="items-tab" tabindex="0"><section aria-label="Items"><div class="section-heading"><h3>Items</h3><span>Empfohlener Build</span></div>
+    <div class="build-columns"><div><section aria-label="Items"><div class="section-heading"><h3>Items</h3><span>Empfohlener Build</span></div>
     <div class="item-start"><div class="item-group"><div class="group-label">Zum Start</div>${items(info.starter_builds[0])}</div><div class="item-group boots-group"><div class="group-label">Schuhe</div>${items(info.boot_builds[0])}</div></div>
     <div class="item-group"><div class="group-label">Deine ersten drei Items <span>In dieser Reihenfolge</span></div>${items(info.core_builds[0], true)}${buildRate(info.core_builds[0])}</div>
     ${info.later_builds.length ? `<details class="alternatives later-items"><summary>Situative Items</summary><div class="items">${info.later_builds.map(build => build.items.map(asset).join("")).join("")}</div></details>` : ""}
     ${info.core_builds[1] ? `<details class="alternatives"><summary>Alternativen Core-Build ansehen</summary>${items(info.core_builds[1], true)}${buildRate(info.core_builds[1])}</details>` : ""}</section>
     <section class="spells-section" aria-label="Summoner Spells"><div class="section-heading"><h3>Summoner Spells</h3></div>${spellBuild(info.spell_builds[0])}${info.spell_builds[1] ? `<details class="alternatives"><summary>Alternative Spells</summary>${spellBuild(info.spell_builds[1])}</details>` : ""}</section></div>
-    <section class="runes-section" id="runes-pane" data-build-pane="runes" aria-labelledby="runes-tab" tabindex="0"><div class="section-heading"><h3>Runen</h3><span>Empfohlene Seite</span></div>${runeBuild(info.rune_builds[0], 0, info)}${info.rune_builds[1] ? `<details class="alternatives"><summary>Alternative Runenseite</summary>${runeBuild(info.rune_builds[1], 1, info)}</details>` : ""}</section></div>
+    <section class="keystone-section" aria-label="Hauptrune"><div class="section-heading"><h3>Hauptrune</h3><span>Empfohlene Seite</span></div>${keystoneQuick(info.rune_builds?.[0], info)}</section></div>
     <p class="build-note">${esc(mismatch)}Empfehlung nach OP.GG-Popularität. <a href="${esc(safeSource)}" target="_blank" rel="noopener noreferrer">Auf OP.GG ansehen ↗</a></p>`;
-  updateBuildSections();
 }
 
 function emptyBuild() {
   const connected = state?.connected;
-  const text = state?.phase === "ChampSelect" ? "Hover einen Champion im League-Client" : connected ? "Warte auf deinen Champion" : "Warte auf den League-Client";
-  $("#build").innerHTML = `<div class="empty-state"><span class="empty-symbol" aria-hidden="true">↳</span><p class="eyebrow">CHAMPION-AUSWAHL</p><h2>Noch kein Champion gewählt</h2><p>Hover einen Champion im League-Client.<br>Items, Runen und Spells erscheinen hier automatisch.</p><span class="waiting"><span class="status-dot"></span>${text}</span></div>`;
+  const text = connected ? "Warte auf deinen Champion" : "Warte auf den League-Client";
+  $("#build").innerHTML = `<div class="empty-state"><span class="empty-symbol" aria-hidden="true">↳</span><p class="eyebrow">IN-GAME BUILD</p><h2>Noch kein Champion verfügbar</h2><p>Sobald League deinen Champion meldet, erscheint hier der vollständige Build.</p><span class="waiting"><span class="status-dot"></span>${text}</span></div>`;
 }
 
 async function loadBuild(player, position, tier, mode, key, version) {
@@ -532,12 +675,10 @@ async function loadBuild(player, position, tier, mode, key, version) {
 }
 
 function updateBuild() {
-  const player = findPlayer(preview) || findPlayer(pinned) || localPlayer();
-  const inspecting = Boolean(preview || pinned);
+  if (!buildPhases.has(state?.phase)) return;
+  const player = localPlayer();
   const mode = currentMode();
   const isAram = mode === "aram";
-  $("#follow-button").hidden = !inspecting;
-  $("#follow-label").hidden = inspecting;
   $("#role-select").disabled = !player?.champion_id || isAram;
   $("#tier-select").disabled = isAram;
   const clientRoleOption = $("#role-select").querySelector('option[value=""]');
@@ -550,7 +691,6 @@ function updateBuild() {
   $("#footer-tier").textContent = isAram
     ? "ARAM"
     : $("#tier-select").selectedOptions[0].textContent;
-  document.querySelectorAll("[data-player]").forEach(row => row.classList.toggle("viewing", Boolean(player?.champion_id) && row.dataset.player === playerKey(player)));
   if (!player?.champion_id) {
     const key = `empty:${state?.phase}`;
     if (key !== activeKey) { activeKey = key; requestVersion++; emptyBuild(); }
@@ -565,65 +705,9 @@ function updateBuild() {
   $("#build").innerHTML = `${hero(player)}<div class="loading-body" role="status"><span class="loader" aria-hidden="true"></span><span>Build von OP.GG wird geladen …</span></div>`;
   loadBuild(player, position, tier, mode, key, version);
 }
-
-function schedulePreview(row) {
-  clearTimeout(hoverTimer);
-  if (!row || row.disabled) return;
-  hoverTimer = setTimeout(() => { preview = row.dataset.player; updateBuild(); }, 180);
-}
-$("#teams").addEventListener("pointerover", event => {
-  if (event.pointerType === "touch") return;
-  const row = event.target.closest("[data-player]");
-  if (row && !row.contains(event.relatedTarget)) schedulePreview(row);
-});
-$("#teams").addEventListener("pointerout", event => {
-  const row = event.target.closest("[data-player]");
-  if (row && !row.contains(event.relatedTarget)) {
-    clearTimeout(hoverTimer);
-    preview = null;
-    updateBuild();
-  }
-});
-$("#teams").addEventListener("focusin", event => {
-  if (!restoringFocus) schedulePreview(event.target.closest("[data-player]"));
-});
-$("#teams").addEventListener("focusout", () => { clearTimeout(hoverTimer); preview = null; updateBuild(); });
-$("#teams").addEventListener("click", event => {
-  const row = event.target.closest("[data-player]");
-  if (!row || row.disabled) return;
-  clearTimeout(hoverTimer);
-  pinned = row.dataset.player;
-  preview = null;
-  $("#role-select").value = "";
-  updateBuild();
-  if (compactLayout.matches) {
-    $("#draft-details").open = false;
-    $(".build-panel").scrollIntoView({block:"start"});
-  }
-});
-$("#follow-button").addEventListener("click", () => {
-  clearTimeout(hoverTimer);
-  preview = pinned = null;
-  $("#role-select").value = "";
-  updateBuild();
-});
 $("#role-select").addEventListener("change", () => updateBuild());
 $("#tier-select").addEventListener("change", () => updateBuild());
-$("#build").addEventListener("keydown", event => {
-  const tab = event.target.closest("[data-build-section]");
-  if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-  event.preventDefault();
-  buildSection = event.key === "Home" ? "items" : event.key === "End" ? "runes" : buildSection === "items" ? "runes" : "items";
-  updateBuildSections();
-  document.querySelector(`[data-build-section="${buildSection}"]`).focus();
-});
-$("#build").addEventListener("click", async event => {
-  const tab = event.target.closest("[data-build-section]");
-  if (tab) {
-    buildSection = tab.dataset.buildSection;
-    updateBuildSections();
-    return;
-  }
+document.addEventListener("click", async event => {
   const button = event.target.closest(".import-runes");
   if (!button || button.disabled) return;
   const status = button.parentElement.querySelector(".rune-import-status");
@@ -631,6 +715,7 @@ $("#build").addEventListener("click", async event => {
   button.disabled = true;
   button.textContent = "Wird übertragen …";
   status.textContent = "";
+  status.classList.remove("error");
   try {
     const response = await fetch("/api/runes", {
       method:"POST",
