@@ -12,10 +12,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-import app
-import lolclient
-import opgg
-import runeclient
+from lolbuddy import app, lolclient, opgg, runeclient
 
 TEST_CHAMPIONS = {
     103: {"name": "Ahri", "alias": "Ahri"},

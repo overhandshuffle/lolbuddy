@@ -53,9 +53,9 @@ try {
         $BundleMode,
         $ConsoleMode,
         "--name", "lolbuddy",
-        "--add-data", "${ProjectRoot}\templates;templates",
-        "--add-data", "${ProjectRoot}\static;static",
-        "app.py"
+        "--add-data", "${ProjectRoot}\lolbuddy\templates;lolbuddy\templates",
+        "--add-data", "${ProjectRoot}\lolbuddy\static;lolbuddy\static",
+        "${ProjectRoot}\app.py"
     )
 
     Write-Host "Baue lolbuddy.exe ..."

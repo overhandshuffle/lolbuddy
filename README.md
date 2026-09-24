@@ -1,162 +1,111 @@
 # lolbuddy
 
-Eine lokale Website für deinen League-Draft. Während der Champion-Auswahl zeigt
-sie deinen Pick, beide Teams nach Rollen gegenübergestellt, Bans, Hauptrune und
-Summoner Spells. Sobald das Spiel startet, erscheint der OP.GG-Itembuild.
+Control League of Legends from your phone while you are away from your PC. Queue
+up, accept a match, pick and lock your champion, import recommended runes, and set
+summoner spells through a mobile-friendly local website. Once the match starts,
+lolbuddy switches to a compact item-only build view.
 
-## Starten
+lolbuddy runs on your Windows PC and communicates with the locally running League
+Client. Your phone only needs a browser and access to the same Wi-Fi network.
 
-Python 3.10 oder neuer:
+## Use the Windows executable
+
+The recommended way to run lolbuddy is `lolbuddy.exe`. Download it from the
+repository's **Releases** page when a prebuilt release is available, or build it
+yourself using the instructions below.
+
+1. Start the League Client and sign in.
+2. Run `lolbuddy.exe`.
+3. Allow private-network access if Windows Firewall asks.
+4. The dashboard and phone QR code open automatically in your browser.
+5. Scan the QR code with a phone connected to the same Wi-Fi network.
+
+Python is not required to use the finished executable. The executable is not
+code-signed, so Windows or antivirus software may show a warning for a newly built
+version.
+
+## System tray
+
+lolbuddy continues running in the Windows system tray when the browser is closed.
+Use the tray icon to:
+
+- open the dashboard;
+- show the phone QR code;
+- open logs for troubleshooting;
+- exit lolbuddy completely.
+
+Starting the executable a second time does not create another server. It opens the
+dashboard of the already running instance instead.
+
+## Build the executable yourself
+
+Requirements: Windows, PowerShell, and Python 3.10 or newer.
+
+```powershell
+git clone https://github.com/overhandshuffle/lolbuddy.git
+cd lolbuddy
+powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
+```
+
+The script creates an isolated `.build-venv`, installs all dependencies, runs the
+tests, and packages the application with PyInstaller. The result is:
+
+```text
+dist\lolbuddy.exe
+```
+
+`dist` is intentionally excluded from Git. To offer the executable as a download,
+create a GitHub Release and attach `dist\lolbuddy.exe` to it.
+
+Optional build modes:
+
+```powershell
+.\build-exe.ps1 -OneDir     # Folder-based build with faster startup
+.\build-exe.ps1 -SkipTests  # Skip tests during repeated local builds
+.\build-exe.ps1 -Console    # Keep a console window for diagnostics
+```
+
+## Run from source
 
 ```powershell
 python -m pip install -r requirements.txt
 python app.py
 ```
 
-Der Browser öffnet **http://127.0.0.1:5000**. Gleichzeitig ist lolbuddy im
-lokalen Netzwerk für Handy und Tablet erreichbar. League kannst du vorher oder
-danach starten. Nur `app.py` muss laufen: Es verwendet `lolclient.py` und
-`opgg.py` direkt. Bei einem Start über Python erscheint das lolbuddy-Symbol im
-Windows-Infobereich; über dessen Menü lässt sich die Anwendung beenden.
-
-Falls Port 5000 schon belegt ist:
+Useful options:
 
 ```powershell
-python app.py --port 5050
+python app.py --port 5050 --region euw --tier emerald_plus --no-browser
 ```
 
-## Windows-EXE bauen
+## Project structure
 
-Auf Windows erzeugt das Build-Skript standardmäßig eine einzelne ausführbare
-Datei. Python muss dafür installiert sein; League-Spieler benötigen Python später
-nicht mehr zum Starten der fertigen EXE.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
+```text
+lolbuddy/
+  app.py            Application, web server, and League monitor
+  lolclient.py      Local League Client integration
+  opgg.py           OP.GG build data parser
+  runeclient.py     Managed rune-page import
+  static/           Browser JavaScript, CSS, and icon
+  templates/        Web interface
+tests/              Automated backend and parser tests
+app.py              Source launcher
+build-exe.ps1       Windows executable build script
 ```
 
-Das Ergebnis liegt unter `dist\lolbuddy.exe`. Das Skript verwendet eine eigene
-`.build-venv`, installiert die benötigten Pakete, führt die Tests aus und bündelt
-`templates` und `static`. Folgende Varianten sind möglich:
-
-```powershell
-# Schnellerer Start und meist weniger Fehlalarme durch Virenscanner, aber ein Ordner statt einer Datei
-.\build-exe.ps1 -OneDir
-
-# Tests bei einem wiederholten lokalen Build auslassen
-.\build-exe.ps1 -SkipTests
-
-# Diagnose-Build mit zusätzlichem Konsolenfenster
-.\build-exe.ps1 -Console
-```
-
-Beim ersten Start kann die Windows-Firewall nach Netzwerkzugriff fragen. Für die
-Nutzung nur auf diesem PC genügt privater bzw. lokaler Zugriff; für den Zugriff
-vom Handy muss die EXE im privaten Heimnetz zugelassen sein. Die EXE läuft ohne
-Konsolenfenster im Windows-Infobereich. Ein Doppelklick auf das Tray-Symbol öffnet
-lolbuddy; das Kontextmenü bietet außerdem **QR-Code anzeigen**,
-**Logs / Fehler anzeigen** und **Beenden**. Nicht behebbare Startfehler erscheinen
-als Windows-Dialog. Die rotierenden Logs liegen unter
-`%LOCALAPPDATA%\lolbuddy\logs\lolbuddy.log`. Die ID der von lolbuddy verwalteten
-Runenseite liegt dauerhaft unter `%LOCALAPPDATA%\lolbuddy\rune-page.json` und wird nicht in die EXE gepackt.
-Eine vorhandene ID aus der Python-Version übernimmt das Build-Skript einmalig.
-Wird die EXE ein zweites Mal geöffnet, erkennt sie die laufende Instanz, öffnet
-nur deren Browseroberfläche und beendet den zweiten Prozess wieder.
-
-Beim Start wird auch die WLAN-Adresse ausgegeben, beispielsweise
-`http://192.168.178.31:5000`. Am PC zeigt **Am Handy öffnen** einen lokal erzeugten
-QR-Code für diese Adresse. Das Handy muss sich im selben WLAN befinden; `--lan`
-ist nicht mehr nötig.
-
-## Benutzung
-
-- Vor der Champion-Auswahl zeigt lolbuddy den ausgewählten Spielmodus und alle
-  beigetretenen Gruppenmitglieder. Während der Spielsuche erscheinen die bisherige
-  Suchzeit und, sofern vom Client geliefert, die geschätzte Wartezeit.
-- Wenn noch keine Lobby besteht, kannst du einen verfügbaren Modus auswählen und
-  die Lobby direkt auf der Website erstellen.
-- Als Gruppenleiter kannst du in dieser Ansicht einen aktuell verfügbaren Spielmodus
-  wählen und die Spielsuche starten oder abbrechen. In Modi mit Positionswahl lassen
-  sich die primäre und sekundäre Position direkt dort setzen.
-- Sobald ein Match gefunden wurde, erscheint auf der Website eine eigene
-  **Spiel gefunden**-Ansicht. **Match annehmen** bestätigt den Ready Check im
-  League-Client; anschließend öffnet sich automatisch wieder die Draft-Ansicht.
-- In der Champion-Auswahl stehen dein eigener Pick, dessen Hauptrune und die
-  empfohlenen Summoner Spells oben.
-  Darunter werden Top, Jungle, Mid, ADC und Support beider Teams direkt
-  gegenübergestellt. Die übrigen Champions sind reine Anzeige und nicht anklickbar.
-- Neben der empfohlenen Hauptrune übernimmt **Runen einspielen** die vollständige
-  Runenseite in den League-Client. Zwei Summoner Spells lassen sich ebenfalls direkt
-  auswählen und gemeinsam in den Client übertragen.
-- Der Itembuild wird erst nach dem Spielstart angezeigt. Runen und Summoner Spells
-  bleiben dort ausgeblendet. **Build anpassen** öffnet dann die Auswahl für Rolle
-  und Tier; situative Items sind direkt sichtbar.
-- **Rolle**: Standardmäßig die vom Client zugewiesene Rolle. Ohne Rollendaten
-  verwendet OP.GG die meistgespielte Rolle. Du kannst sie manuell ändern. Falls
-  OP.GG für eine Champion-/Rollen-Kombination keine Daten veröffentlicht, zeigt
-  lolbuddy das ausdrücklich an und ersetzt die Rolle nicht durch eine andere.
-- **Tier**: Die Rangstufe der OP.GG-Daten lässt sich unter **Build anpassen**
-  auswählen. Die Auswahl bleibt beim Wechsel des Champions erhalten.
-- **Modus**: lolbuddy erkennt ARAM über den League-Client. In ARAM verwendet es
-  automatisch OP.GGs globale ARAM-Builds; Rolle und Rang-Tier sind dort deaktiviert.
-- Während der Champion-Auswahl öffnet **Champion wählen** eine durchsuchbare Liste
-  deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt sofort den Hover
-  im Client und schließt die Liste. Anschließend loggt **Fest wählen** neben
-  **Champion ändern** den Champion während deines Pick-Zugs verbindlich ein.
-- Alternative Core-Builds sind nach dem Spielstart direkt sichtbar.
-- Auf dem Handy bleibt die Pick-Ansicht einspaltig und die Rollenpaarungen kompakt.
-  Die Champion-Liste scrollt innerhalb der Auswahl; Suche und **Fest wählen**
-  bleiben erreichbar.
-- **Runen einspielen** erstellt beim ersten Mal eine Seite wie
-  `Ahri Mid` oder `Ahri ARAM` und aktiviert sie. Weitere Importe aktualisieren
-  über die gespeicherte Seiten-ID nur diese verwaltete Seite; eigene Seiten
-  bleiben unverändert.
-- Dein letzter Draft und Build bleiben im Spiel sichtbar. Nach einem Neustart
-  der Website mitten im Spiel ist ein vorheriger Draft nicht mehr vorhanden.
-
-Die Oberfläche verbindet sich nach Client- oder Server-Unterbrechungen erneut.
-Die Champion-Auswahl wird alle 250 ms gelesen; Änderungen werden per
-Server-Sent Events direkt an den Browser gesendet. OP.GG-Abfragen laufen separat
-und werden pro Champion, Rolle, Tier und Modus für 15 Minuten zwischengespeichert. Fehler werden
-für zehn Sekunden zwischengespeichert. Schnelle Championwechsel können keinen
-alten Build über den aktuellen schreiben.
-
-Weitere Optionen:
-
-```powershell
-python app.py --region euw --tier emerald_plus --no-browser
-```
-
-## Daten und Grenzen
-
-„Empfohlen“ bedeutet den zuerst von OP.GG gelisteten populären Build für die
-gewählte Rolle und das gewählte Tier, standardmäßig EUW / Emerald+. Angezeigt werden dessen tatsächliche
-Pick- und Winraten, keine errechnete Garantie für den besten Build in jedem Match.
-Spätere Items sind situative Alternativen; die ersten drei Core-Items werden in
-Kaufreihenfolge angezeigt. Für ARAM werden stattdessen automatisch OP.GGs globale
-ARAM-Daten mit den dortigen Items, Runen und Summoner Spells geladen.
-
-OP.GG wird aus den öffentlich ausgelieferten Seitendaten gelesen. Änderungen an
-deren Seitenformat können eine Anpassung des Parsers nötig machen. Bilder werden
-vom OP.GG-CDN geladen. Item- und Runennamen entsprechen der englischen Datenquelle.
-
-Die Website ist auf dem PC und im lokalen WLAN erreichbar und liest die lokale
-League-API. Zugangsdaten bleiben im Python-Prozess. Schreibende Aktionen werden
-nur durch die entsprechenden Buttons ausgelöst. Die Flask-Instanz ist für den
-lokalen Betrieb in einem vertrauenswürdigen Netzwerk gedacht.
-
-## Prüfen
+Run the test suite with:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-Die Tests prüfen unter anderem Hover und Champion-Tausch, Wiederverbindung,
-OP.GG-Tabellenreferenzen, Item-Mengen, Spells, Rune-Auswahl, Cache und Live-Events.
-Sie benötigen keinen League-Client und keine Internetverbindung.
+## Local data and privacy
 
-Datenquellen: [OP.GG](https://op.gg/lol/champions) und die
-[lokale League Client API](https://developer.riotgames.com/docs/lol#league-client-api).
+The dashboard is intended for a trusted private network. League credentials stay
+inside the local League Client connection and are never sent to the phone. Build
+data and images come from [OP.GG](https://op.gg/lol/champions).
+
+Logs and the managed rune-page ID are stored under `%LOCALAPPDATA%\lolbuddy`.
 
 lolbuddy is not endorsed by Riot Games and does not reflect the views or opinions
 of Riot Games or anyone officially involved in producing or managing Riot Games

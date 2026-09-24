@@ -14,8 +14,7 @@ from typing import Any
 
 import requests
 
-import lolclient
-import opgg
+from . import lolclient, opgg
 
 
 LEGACY_PAGE_PREFIX = "LOLBUDDY |"

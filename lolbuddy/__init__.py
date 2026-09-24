@@ -1,0 +1,1 @@
+"""lolbuddy application package."""
