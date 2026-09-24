@@ -136,25 +136,23 @@
           </section>
 
           <section class="spell-picker" aria-labelledby="spell-picker-title">
-            <div class="pick-section-heading"><span>02</span><div><p class="eyebrow">DEIN SETUP</p><h2 id="spell-picker-title">Summoner Spells</h2></div></div>
+            <div class="pick-section-heading"><span>02</span><div><p class="eyebrow">EMPFEHLUNG &amp; SETUP</p><h2 id="spell-picker-title">Summoner Spells</h2></div></div>
+            <div id="pick-spell-recommendation" aria-live="polite">
+              <p class="pick-placeholder">Wähle oder hover zuerst deinen Champion.</p>
+            </div>
             <div class="spell-picker-fields">
               <label>Erster Spell<select id="first-spell" aria-label="Erster Summoner Spell"></select></label>
               <label>Zweiter Spell<select id="second-spell" aria-label="Zweiter Summoner Spell"></select></label>
               <button class="button pick-action-button" id="apply-spells" type="button">Im Client setzen</button>
             </div>
             <p class="spell-picker-status" id="spell-picker-status" role="status"></p>
-            <div class="item-set-picker">
-              <div><strong>OP.GG-Itemset</strong><small>Ersetzt vorhandene Sets für deinen Champion.</small></div>
-              <button class="button pick-action-button" id="import-item-set" type="button" disabled>Itemsets laden</button>
-            </div>
-            <p class="item-set-status" id="item-set-status" role="status"></p>
           </section>
         </div>
       </section>
 
       <section class="build-panel" id="build-panel" aria-label="Champion-Build" hidden>
         <div class="build-toolbar">
-          <span class="build-kicker">DEIN IN-GAME BUILD</span>
+          <span class="build-kicker">DEIN IN-GAME ITEMBUILD</span>
           <details class="build-settings">
             <summary>Build anpassen<span class="disclosure-chevron" aria-hidden="true"></span></summary>
             <div class="build-settings-fields">
@@ -182,7 +180,7 @@
           </details>
         </div>
         <div id="build" aria-live="polite" aria-atomic="false">
-          <div class="empty-state"><span class="empty-symbol" aria-hidden="true">↳</span><p class="eyebrow">CHAMPION-AUSWAHL</p><h2>Noch kein Champion gewählt</h2><p>Hover einen Champion im League-Client.<br>Items, Runen und Spells erscheinen hier automatisch.</p><span class="waiting"><span class="status-dot"></span> Warte auf den League-Client</span></div>
+          <div class="empty-state"><span class="empty-symbol" aria-hidden="true">↳</span><p class="eyebrow">IN-GAME ITEMBUILD</p><h2>Warte auf den Spielstart</h2><p>Deine empfohlenen Items erscheinen hier, sobald das Spiel startet.</p><span class="waiting"><span class="status-dot"></span> Warte auf den League-Client</span></div>
         </div>
       </section>
     </div>

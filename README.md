@@ -2,8 +2,7 @@
 
 Eine lokale Website für deinen League-Draft. Während der Champion-Auswahl zeigt
 sie deinen Pick, beide Teams nach Rollen gegenübergestellt, Bans, Hauptrune und
-Summoner Spells. Sobald das Spiel startet, erscheint der vollständige OP.GG-Build
-mit Bildern für Items, Hauptrune und Summoner Spells.
+Summoner Spells. Sobald das Spiel startet, erscheint der OP.GG-Itembuild.
 
 ## Starten
 
@@ -82,18 +81,16 @@ ist nicht mehr nötig.
 - Sobald ein Match gefunden wurde, erscheint auf der Website eine eigene
   **Spiel gefunden**-Ansicht. **Match annehmen** bestätigt den Ready Check im
   League-Client; anschließend öffnet sich automatisch wieder die Draft-Ansicht.
-- In der Champion-Auswahl stehen dein eigener Pick und dessen Hauptrune oben.
+- In der Champion-Auswahl stehen dein eigener Pick, dessen Hauptrune und die
+  empfohlenen Summoner Spells oben.
   Darunter werden Top, Jungle, Mid, ADC und Support beider Teams direkt
   gegenübergestellt. Die übrigen Champions sind reine Anzeige und nicht anklickbar.
 - Neben der empfohlenen Hauptrune übernimmt **Runen einspielen** die vollständige
   Runenseite in den League-Client. Zwei Summoner Spells lassen sich ebenfalls direkt
   auswählen und gemeinsam in den Client übertragen.
-- **Itemsets laden** erstellt aus demselben OP.GG-Build ein Gegenstandsset für den
-  aktuellen Champion. Vorhandene championbezogene Sets werden ersetzt; globale Sets
-  und Zuordnungen für andere Champions bleiben erhalten.
-- Der vollständige Build wird erst nach dem Spielstart angezeigt. **Build anpassen**
-  öffnet dann die Auswahl für Rolle und Tier; weitere Statistiken und situative
-  Items lassen sich bei Bedarf aufklappen.
+- Der Itembuild wird erst nach dem Spielstart angezeigt. Runen und Summoner Spells
+  bleiben dort ausgeblendet. **Build anpassen** öffnet dann die Auswahl für Rolle
+  und Tier; situative Items sind direkt sichtbar.
 - **Rolle**: Standardmäßig die vom Client zugewiesene Rolle. Ohne Rollendaten
   verwendet OP.GG die meistgespielte Rolle. Du kannst sie manuell ändern. Falls
   OP.GG für eine Champion-/Rollen-Kombination keine Daten veröffentlicht, zeigt
@@ -106,7 +103,7 @@ ist nicht mehr nötig.
   deiner im aktuellen Draft spielbaren Champions. Ein Klick setzt sofort den Hover
   im Client und schließt die Liste. Anschließend loggt **Fest wählen** neben
   **Champion ändern** den Champion während deines Pick-Zugs verbindlich ein.
-- Alternative Core-Builds und Spells lassen sich nach dem Spielstart aufklappen.
+- Alternative Core-Builds sind nach dem Spielstart direkt sichtbar.
 - Auf dem Handy bleibt die Pick-Ansicht einspaltig und die Rollenpaarungen kompakt.
   Die Champion-Liste scrollt innerhalb der Auswahl; Suche und **Fest wählen**
   bleiben erreichbar.

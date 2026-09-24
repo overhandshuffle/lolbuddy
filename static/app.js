@@ -11,11 +11,11 @@ const phases = {
   Matchmaking: ["Spielsuche läuft", "Deine Lobby ist bereit. Gleich geht’s in die Champion-Auswahl."],
   ReadyCheck: ["Spiel gefunden", "Bestätige das Match im League-Client."],
   ChampSelect: ["Champion-Auswahl", "Dein Pick, deine Spells und alle Matchups auf einen Blick."],
-  GameStart: ["Das Spiel startet", "Dein Build bleibt während des Spiels geöffnet."],
-  InProgress: ["Ab in die Kluft", "Dein Build bleibt während des Spiels geöffnet."],
-  Reconnect: ["Zurück ins Spiel", "Dein letzter Draft und Build bleiben hier verfügbar."],
-  WaitingForStats: ["Spiel beendet", "Dein Build bleibt bis zur nächsten Lobby geöffnet."],
-  PreEndOfGame: ["Spiel beendet", "Dein Build bleibt bis zur nächsten Lobby geöffnet."],
+  GameStart: ["Das Spiel startet", "Deine Items bleiben während des Spiels geöffnet."],
+  InProgress: ["Ab in die Kluft", "Deine Items bleiben während des Spiels geöffnet."],
+  Reconnect: ["Zurück ins Spiel", "Deine Items bleiben hier verfügbar."],
+  WaitingForStats: ["Spiel beendet", "Deine Items bleiben bis zur nächsten Lobby geöffnet."],
+  PreEndOfGame: ["Spiel beendet", "Deine Items bleiben bis zur nächsten Lobby geöffnet."],
   EndOfGame: ["Spiel beendet", "Bereit für die nächste Runde?"],
 };
 let state = null;
@@ -29,10 +29,8 @@ let selectedChampionId = 0;
 let championPickPending = false;
 let championPickLocking = false;
 let pickerSignature = "";
-let draftBuildKey = "";
-let draftBuildVersion = 0;
-let draftBuildInfo = null;
-let itemSetPending = false;
+let draftRecommendationKey = "";
+let draftRecommendationVersion = 0;
 let draftTimerDeadline = 0;
 let draftTimerPhase = "";
 const buildPhases = new Set(["GameStart", "InProgress", "Reconnect", "WaitingForStats", "PreEndOfGame", "EndOfGame"]);
@@ -460,100 +458,48 @@ $("#first-spell").addEventListener("change", () => { $("#spell-picker-status").t
 $("#second-spell").addEventListener("change", () => { $("#spell-picker-status").textContent = ""; });
 $("#apply-spells").addEventListener("click", applySummonerSpells);
 
-function resetDraftItemSet() {
-  draftBuildInfo = null;
-  const button = $("#import-item-set");
-  button.disabled = true;
-  if (!itemSetPending) button.textContent = "Itemsets laden";
-  $("#item-set-status").textContent = "";
-  $("#item-set-status").classList.remove("error");
-}
-
-async function importItemSet() {
-  if (itemSetPending || !draftBuildInfo) return;
-  const info = draftBuildInfo;
-  const button = $("#import-item-set");
-  const status = $("#item-set-status");
-  let imported = false;
-  itemSetPending = true;
-  button.disabled = true;
-  button.textContent = "Wird übertragen …";
-  status.textContent = "";
-  status.classList.remove("error");
-  try {
-    const response = await fetch("/api/item-set", {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        champion:info.champion,
-        position:info.request_position || null,
-        tier:info.request_tier || info.rank_tier,
-        mode:info.request_mode || info.game_mode,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Itemset-Import fehlgeschlagen.");
-    imported = true;
-    if (draftBuildInfo === info && state?.phase === "ChampSelect") {
-      button.textContent = "✓ Im Client gespeichert";
-      status.textContent = data.replaced
-        ? `${data.replaced} vorhandene ${data.replaced === 1 ? "Set wurde" : "Sets wurden"} ersetzt.`
-        : data.name;
-    }
-  } catch (error) {
-    if (draftBuildInfo === info && state?.phase === "ChampSelect") {
-      button.textContent = "Itemsets laden";
-      status.textContent = error.message;
-      status.classList.add("error");
-    }
-  } finally {
-    itemSetPending = false;
-    if (draftBuildInfo === info && state?.phase === "ChampSelect") {
-      button.disabled = imported;
-    } else if (draftBuildInfo && state?.phase === "ChampSelect") {
-      button.disabled = false;
-      button.textContent = "Itemsets laden";
-    }
-  }
-}
-
-$("#import-item-set").addEventListener("click", importItemSet);
-
 function runeImportButton(info, index = 0, label = "Runen einspielen") {
   return `<button class="button pick-action-button import-runes" data-champion="${esc(info.champion)}" data-position="${esc(info.request_position ?? info.position)}" data-tier="${esc(info.request_tier || info.rank_tier)}" data-mode="${esc(info.request_mode || info.game_mode)}" data-rune-index="${index}">${label}</button>`;
 }
 
-function keystoneQuick(build, info, context = "game") {
+function keystoneQuick(build, info) {
   if (!build) return '<p class="no-data">Keine Runenempfehlung verfügbar.</p>';
   const keystone = build.primary_runes?.[0];
   if (!keystone) return '<p class="no-data">Keine Hauptrune verfügbar.</p>';
-  return `<div class="keystone-quick ${context}">
+  return `<div class="keystone-quick">
     <div class="keystone-info">${image(keystone.image_url, "")}<span><small>Hauptrune</small><strong>${esc(keystone.name)}</strong></span></div>
     ${runeImportButton(info)}
     <p class="rune-import-status" role="status"></p>
   </div>`;
 }
 
-async function loadDraftRune(player, position, tier, mode, key, version) {
+function recommendedSpells(build) {
+  if (!build?.spells?.length) return '<p class="pick-placeholder">Keine Spell-Empfehlung verfügbar.</p>';
+  return `<div class="spell-recommendation">
+    <span class="recommendation-label">OP.GG empfiehlt</span>
+    <div class="spell-list">${build.spells.map(spell => `<div class="spell">${image(spell.image_url, spell.name)}<span>${esc(spell.name)}</span></div>`).join("")}</div>
+  </div>`;
+}
+
+async function loadDraftRecommendations(player, position, tier, mode, key, version) {
   try {
     const query = new URLSearchParams({champion:player.alias || player.name, tier, mode});
     if (position) query.set("position", position);
     const response = await fetch(`/api/build?${query}`, {signal:AbortSignal.timeout(30000)});
     const info = await response.json();
-    if (!response.ok) throw new Error(info.error || "Runenempfehlung nicht verfügbar.");
-    if (version === draftBuildVersion && state?.phase === "ChampSelect") {
+    if (!response.ok) throw new Error(info.error || "Empfehlungen nicht verfügbar.");
+    if (version === draftRecommendationVersion && state?.phase === "ChampSelect") {
       info.request_position = position || "";
       info.request_tier = tier;
       info.request_mode = mode;
-      draftBuildInfo = info;
-      $("#pick-rune-content").innerHTML = keystoneQuick(info.rune_builds?.[0], info, "draft");
-      $("#import-item-set").disabled = itemSetPending;
-      $("#import-item-set").textContent = "Itemsets laden";
+      $("#pick-rune-content").innerHTML = keystoneQuick(info.rune_builds?.[0], info);
+      $("#pick-spell-recommendation").innerHTML = recommendedSpells(info.spell_builds?.[0]);
     }
   } catch (error) {
-    if (version !== draftBuildVersion) return;
+    if (version !== draftRecommendationVersion) return;
     const message = ["TimeoutError", "AbortError"].includes(error.name) ? "OP.GG antwortet gerade zu langsam." : error.message;
     $("#pick-rune-content").innerHTML = `<p class="pick-inline-error">${esc(message)}</p>`;
+    $("#pick-spell-recommendation").innerHTML = `<p class="pick-inline-error">${esc(message)}</p>`;
   }
 }
 
@@ -561,22 +507,22 @@ function updateDraftSetup() {
   if (state?.phase !== "ChampSelect") return;
   const player = localPlayer();
   if (!player?.champion_id) {
-    draftBuildKey = "";
-    draftBuildVersion++;
-    resetDraftItemSet();
+    draftRecommendationKey = "";
+    draftRecommendationVersion++;
     $("#pick-rune-content").innerHTML = '<p class="pick-placeholder">Wähle oder hover zuerst deinen Champion.</p>';
+    $("#pick-spell-recommendation").innerHTML = '<p class="pick-placeholder">Wähle oder hover zuerst deinen Champion.</p>';
     return;
   }
   const mode = currentMode();
   const position = mode === "aram" ? "" : player.position || "";
   const tier = $("#tier-select").value;
   const key = `${player.alias || player.name}:${position}:${tier}:${mode}`;
-  if (key === draftBuildKey) return;
-  draftBuildKey = key;
-  const version = ++draftBuildVersion;
-  resetDraftItemSet();
+  if (key === draftRecommendationKey) return;
+  draftRecommendationKey = key;
+  const version = ++draftRecommendationVersion;
   $("#pick-rune-content").innerHTML = '<div class="pick-rune-loading"><span class="loader" aria-hidden="true"></span><span>Hauptrune wird geladen …</span></div>';
-  loadDraftRune(player, position, tier, mode, key, version);
+  $("#pick-spell-recommendation").innerHTML = '<div class="pick-rune-loading"><span class="loader" aria-hidden="true"></span><span>Spells werden geladen …</span></div>';
+  loadDraftRecommendations(player, position, tier, mode, key, version);
 }
 
 function applyState(value) {
@@ -637,10 +583,9 @@ function applyState(value) {
     $("#role-select").value = "";
     activeKey = "";
   }
-  if (!isChampSelect && draftBuildKey) {
-    draftBuildKey = "";
-    draftBuildVersion++;
-    resetDraftItemSet();
+  if (!isChampSelect && draftRecommendationKey) {
+    draftRecommendationKey = "";
+    draftRecommendationVersion++;
   }
   if (isChampSelect) {
     renderOwnPick();
@@ -685,10 +630,8 @@ $("#accept-ready-check").addEventListener("click", async () => {
 function hero(player, info = null) {
   const mode = info?.game_mode || currentMode();
   const position = mode === "aram" ? "aram" : info?.position || $("#role-select").value || player.position;
-  const banStat = mode === "aram" ? "" : `<div class="stat"><strong>${rate(info?.ban_rate)}</strong><span>Banrate</span></div>`;
-  const stats = info ? `<details class="champion-stats"><summary>Statistiken<span class="disclosure-chevron" aria-hidden="true"></span></summary><div class="hero-stats"><div class="stat"><strong>${rate(info.win_rate)}</strong><span>Winrate</span></div><div class="stat"><strong>${rate(info.pick_rate)}</strong><span>Pickrate</span></div>${banStat}</div></details>` : "";
   const dataset = mode === "aram" ? "ARAM · Global" : `${info?.region?.toUpperCase()} · ${info?.rank_tier?.replace("_plus", "+").replaceAll("_", " ")}`;
-  return `<div class="hero">${image(info?.image_url || player.image_url, player.name, "hero-portrait")}<div class="hero-copy"><p class="eyebrow">${esc(roles[position] || "EMPFOHLENE ROLLE")}${info?.tier ? ` · TIER ${info.tier}` : ""}</p><h2>${esc(info?.name || player.name)}</h2><div class="hero-meta">${info ? `<span>Patch ${esc(info.patch)}</span><span>·</span><span>${esc(dataset)}</span>` : "<span>Build wird von OP.GG geladen</span>"}</div></div>${stats}</div>`;
+  return `<div class="hero">${image(info?.image_url || player.image_url, player.name, "hero-portrait")}<div class="hero-copy"><p class="eyebrow">${esc(roles[position] || "EMPFOHLENE ROLLE")}${info?.tier ? ` · TIER ${info.tier}` : ""}</p><h2>${esc(info?.name || player.name)}</h2><div class="hero-meta">${info ? `<span>Patch ${esc(info.patch)}</span><span>·</span><span>${esc(dataset)}</span>` : "<span>Build wird von OP.GG geladen</span>"}</div></div></div>`;
 }
 
 function asset(item) {
@@ -702,30 +645,26 @@ function buildRate(build) {
   if (!build) return "";
   return `<p class="build-rate"><span><b>${rate(build.win_rate)}</b> Winrate</span><span>${rate(build.pick_rate)} Pickrate</span></p>`;
 }
-function spellBuild(build) {
-  if (!build) return '<p class="no-data">Keine Summoner-Spells verfügbar.</p>';
-  return `<div class="spell-list">${build.spells.map(spell => `<div class="spell">${image(spell.image_url, spell.name)}<span>${esc(spell.name)}</span></div>`).join("")}</div>${buildRate(build)}`;
-}
-
 function renderBuild(player, info) {
   const safeSource = /^https:\/\/op\.gg\/lol\/(?:champions|modes\/aram)\//.test(info.source_url) ? info.source_url : "https://op.gg/lol/champions";
   const requestedRole = info.game_mode === "aram" ? "aram" : $("#role-select").value || player.position;
   const mismatch = requestedRole && requestedRole !== info.position ? `OP.GG liefert hier ${roles[info.position] || info.position} statt ${roles[requestedRole]}. ` : "";
   $("#build").innerHTML = `${hero(player, info)}
-    <div class="build-columns"><div><section aria-label="Items"><div class="section-heading"><h3>Items</h3><span>Empfohlener Build</span></div>
-    <div class="item-start"><div class="item-group"><div class="group-label">Zum Start</div>${items(info.starter_builds[0])}</div><div class="item-group boots-group"><div class="group-label">Schuhe</div>${items(info.boot_builds[0])}</div></div>
-    <div class="item-group"><div class="group-label">Deine ersten drei Items <span>In dieser Reihenfolge</span></div>${items(info.core_builds[0], true)}${buildRate(info.core_builds[0])}</div>
-    ${info.later_builds.length ? `<details class="alternatives later-items"><summary>Situative Items</summary><div class="items">${info.later_builds.map(build => build.items.map(asset).join("")).join("")}</div></details>` : ""}
-    ${info.core_builds[1] ? `<details class="alternatives"><summary>Alternativen Core-Build ansehen</summary>${items(info.core_builds[1], true)}${buildRate(info.core_builds[1])}</details>` : ""}</section>
-    <section class="spells-section" aria-label="Summoner Spells"><div class="section-heading"><h3>Summoner Spells</h3></div>${spellBuild(info.spell_builds[0])}${info.spell_builds[1] ? `<details class="alternatives"><summary>Alternative Spells</summary>${spellBuild(info.spell_builds[1])}</details>` : ""}</section></div>
-    <section class="keystone-section" aria-label="Hauptrune"><div class="section-heading"><h3>Hauptrune</h3><span>Empfohlene Seite</span></div>${keystoneQuick(info.rune_builds?.[0], info)}</section></div>
+    <section class="item-build" aria-label="Items"><div class="section-heading"><h3>Items</h3><span>Empfohlener Build</span></div>
+    <div class="item-groups">
+      <div class="item-group"><div class="group-label">Zum Start</div>${items(info.starter_builds[0])}</div>
+      <div class="item-group"><div class="group-label">Schuhe</div>${items(info.boot_builds[0])}</div>
+      <div class="item-group wide"><div class="group-label">Core-Build <span>In dieser Reihenfolge</span></div>${items(info.core_builds[0], true)}${buildRate(info.core_builds[0])}</div>
+      ${info.later_builds.length ? `<div class="item-group wide"><div class="group-label">Situative Items</div><div class="items">${info.later_builds.map(build => build.items.map(asset).join("")).join("")}</div></div>` : ""}
+      ${info.core_builds[1] ? `<div class="item-group wide"><div class="group-label">Alternativer Core-Build</div>${items(info.core_builds[1], true)}${buildRate(info.core_builds[1])}</div>` : ""}
+    </div></section>
     <p class="build-note">${esc(mismatch)}Empfehlung nach OP.GG-Popularität. <a href="${esc(safeSource)}" target="_blank" rel="noopener noreferrer">Auf OP.GG ansehen ↗</a></p>`;
 }
 
 function emptyBuild() {
   const connected = state?.connected;
   const text = connected ? "Warte auf deinen Champion" : "Warte auf den League-Client";
-  $("#build").innerHTML = `<div class="empty-state"><span class="empty-symbol" aria-hidden="true">↳</span><p class="eyebrow">IN-GAME BUILD</p><h2>Noch kein Champion verfügbar</h2><p>Sobald League deinen Champion meldet, erscheint hier der vollständige Build.</p><span class="waiting"><span class="status-dot"></span>${text}</span></div>`;
+  $("#build").innerHTML = `<div class="empty-state"><span class="empty-symbol" aria-hidden="true">↳</span><p class="eyebrow">IN-GAME ITEMBUILD</p><h2>Noch kein Champion verfügbar</h2><p>Sobald League deinen Champion meldet, erscheinen hier die empfohlenen Items.</p><span class="waiting"><span class="status-dot"></span>${text}</span></div>`;
 }
 
 async function loadBuild(player, position, tier, mode, key, version) {

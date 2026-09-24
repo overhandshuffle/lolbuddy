@@ -511,36 +511,6 @@ def build_parameters(data, default_tier):
     return champion, position, tier, mode
 
 
-def item_set_blocks(info):
-    """Wandelt die bereits geladenen OP.GG-Items in kompakte Client-Blöcke um."""
-
-    def item_list(build):
-        return [
-            {"id": item.id, "count": item.count}
-            for item in (build.items if build else ())
-        ]
-
-    def combined(builds):
-        result = []
-        seen = set()
-        for build in builds:
-            for item in build.items:
-                if item.id in seen:
-                    continue
-                seen.add(item.id)
-                result.append({"id": item.id, "count": item.count})
-        return result
-
-    candidates = [
-        ("Start", item_list(info.starter_builds[0]) if info.starter_builds else []),
-        ("Core-Build", item_list(info.core_builds[0]) if info.core_builds else []),
-        ("Schuhe", item_list(info.boot_builds[0]) if info.boot_builds else []),
-        ("Situative Items", combined(info.later_builds)),
-        ("Alternativer Core-Build", item_list(info.core_builds[1]) if len(info.core_builds) > 1 else []),
-    ]
-    return [{"type": name, "items": items} for name, items in candidates if items]
-
-
 def create_app(state=None, builds=None, *, lan_url=""):
     app = Flask(__name__)
     state = state or LiveState()
@@ -773,54 +743,6 @@ def create_app(state=None, builds=None, *, lan_url=""):
             return jsonify(error=str(error), kind="rune_import_error"), 502
         except (FutureTimeout, ValueError, KeyError, TypeError):
             return jsonify(error="Die Runen konnten nicht importiert werden."), 502
-
-    @app.post("/api/item-set")
-    def import_item_set():
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return jsonify(error="Ungültige Anfrage."), 400
-        parameters = build_parameters(data, builds.tier)
-        if parameters is None:
-            return jsonify(error="Champion, Rolle oder Spielmodus ist ungültig."), 400
-
-        current = state.read()
-        local = next(
-            (player for player in current.get("own_team", []) if player.get("is_local")),
-            None,
-        )
-        if current.get("phase") != "ChampSelect" or not local or not local.get("champion_id"):
-            return jsonify(error="Wähle zuerst einen Champion."), 409
-
-        champion, position, tier, mode = parameters
-        local_name = local.get("alias") or local.get("name") or ""
-        if opgg._slugify_champion(champion) != opgg._slugify_champion(local_name):
-            return jsonify(error="Dein Champion hat sich inzwischen geändert."), 409
-
-        try:
-            info = builds.get(champion, position, tier=tier, mode=mode)
-            blocks = item_set_blocks(info)
-            if not blocks:
-                return jsonify(error="OP.GG bietet für diesen Champion keine Items an."), 404
-            role_names = {
-                "top": "Top", "jungle": "Jungle", "mid": "Mid",
-                "adc": "ADC", "support": "Support", "aram": "ARAM",
-            }
-            role = role_names.get(info.position, info.position.title() if info.position else "Build")
-            result = lolclient.import_item_set(
-                int(local["champion_id"]),
-                f"lolbuddy · {info.name} {role}",
-                blocks,
-                map_ids=[12] if mode == "aram" else [11],
-            )
-            return jsonify(**result)
-        except opgg.BuildNotFoundError:
-            return jsonify(error="OP.GG hat für diese Rolle keine Items."), 404
-        except opgg.OpggError:
-            return jsonify(error="Die Items konnten gerade nicht von OP.GG geladen werden."), 502
-        except lolclient.ItemSetError as error:
-            return jsonify(error=str(error), kind="item_set_error"), 502
-        except (FutureTimeout, OSError, RuntimeError, requests.RequestException, ValueError, KeyError, TypeError):
-            return jsonify(error="Das Itemset konnte nicht importiert werden."), 502
 
     return app
 

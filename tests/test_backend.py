@@ -263,38 +263,6 @@ class ClientTests(unittest.TestCase):
                 lolclient.set_summoner_spells(4, 4)
         connect.assert_not_called()
 
-    def test_item_set_replaces_champion_sets_without_removing_other_assignments(self):
-        session = Mock()
-        session.get.side_effect = [
-            json_response({"accountId": 55}),
-            json_response({"accountId": 55, "timestamp": 1, "itemSets": [
-                {"uid": "only-ahri", "associatedChampions": [103]},
-                {"uid": "shared", "associatedChampions": [103, 222]},
-                {"uid": "jinx", "associatedChampions": [222]},
-                {"uid": "global", "associatedChampions": []},
-            ]}),
-        ]
-        session.put.return_value = json_response(None, 204)
-        with patch.object(
-            lolclient, "connect_to_lcu", return_value=(session, "https://127.0.0.1:1234")
-        ):
-            result = lolclient.import_item_set(
-                103, "lolbuddy · Ahri Mid",
-                [{"type": "Core-Build", "items": [{"id": 3089}, {"id": 3020}]}],
-                map_ids=[11],
-            )
-        self.assertEqual(result["replaced"], 2)
-        payload = session.put.call_args.kwargs["json"]
-        sets = payload["itemSets"]
-        self.assertNotIn("only-ahri", [item["uid"] for item in sets])
-        self.assertEqual(next(item for item in sets if item["uid"] == "shared")["associatedChampions"], [222])
-        self.assertIn("global", [item["uid"] for item in sets])
-        created = sets[-1]
-        self.assertEqual(created["associatedChampions"], [103])
-        self.assertEqual(created["associatedMaps"], [11])
-        self.assertEqual(created["blocks"][0]["items"][0], {"id": "3089", "count": 1})
-        session.close.assert_called_once_with()
-
     def test_accept_ready_check_posts_to_lcu_and_closes_session(self):
         session = Mock()
         session.post.return_value.status_code = 204
@@ -693,55 +661,15 @@ class CacheAndWebTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertIn("Client nicht erreichbar", response.json["error"])
 
-    def test_item_set_route_uses_current_champion_and_cached_build(self):
-        def build(*item_ids):
-            return opgg.ItemBuild(
-                tuple(opgg.Item(item_id, str(item_id), "", 1) for item_id in item_ids),
-                None, None,
-            )
-
-        info = SimpleNamespace(
-            name="Ahri", position="mid",
-            starter_builds=(build(1056, 2003),),
-            core_builds=(build(3089, 3100, 3135),),
-            boot_builds=(build(3020),),
-            later_builds=(build(3157),),
-        )
+    def test_item_set_import_is_not_exposed(self):
         builds = Mock(region="euw", tier="emerald_plus")
-        builds.get.return_value = info
-        state = app.LiveState()
-        state.publish({
-            **app.empty_state(), "connected": True, "phase": "ChampSelect",
-            "own_team": [{
-                "champion_id": 103, "name": "Ahri", "alias": "Ahri",
-                "position": "mid", "status": "HOVER", "is_local": True,
-            }],
-        })
-        client = app.create_app(state=state, builds=builds).test_client()
-        with patch.object(
-            app.lolclient, "import_item_set",
-            return_value={"name": "lolbuddy · Ahri Mid", "replaced": 1},
-        ) as import_set:
-            response = client.post("/api/item-set", json={
-                "champion": "Ahri", "position": "mid",
-                "tier": "emerald_plus", "mode": "classic",
-            })
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["replaced"], 1)
-        builds.get.assert_called_once_with(
-            "Ahri", "mid", tier="emerald_plus", mode="classic"
-        )
-        args, kwargs = import_set.call_args
-        self.assertEqual(args[:2], (103, "lolbuddy · Ahri Mid"))
-        self.assertEqual(kwargs, {"map_ids": [11]})
-        self.assertEqual([block["type"] for block in args[2]], [
-            "Start", "Core-Build", "Schuhe", "Situative Items",
-        ])
+        client = app.create_app(builds=builds).test_client()
+        page = client.get("/").get_data(as_text=True)
 
-        response = client.post("/api/item-set", json={
-            "champion": "Jinx", "position": "mid", "mode": "classic",
-        })
-        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("import-item-set", page)
+        self.assertNotIn("Itemsets laden", page)
+        self.assertIn("pick-spell-recommendation", page)
+        self.assertEqual(client.post("/api/item-set", json={}).status_code, 404)
 
     def test_aram_rune_import_ignores_lane_and_uses_aram_build(self):
         builds = Mock(region="euw", tier="emerald_plus")
