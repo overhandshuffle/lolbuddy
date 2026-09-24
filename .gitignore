@@ -9,3 +9,4 @@ dist/
 *.spec
 .lolbuddy-rune-page.json
 .lolbuddy-rune-page.json.tmp
+.vscode/
