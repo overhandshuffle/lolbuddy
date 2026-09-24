@@ -5,7 +5,7 @@ __pycache__/
 .opgg-*
 .test-artifacts/
 build/
-dist/
+
 *.spec
 .lolbuddy-rune-page.json
 .lolbuddy-rune-page.json.tmp
